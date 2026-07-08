@@ -1,0 +1,40 @@
+# Delphi build output
+**/Win32/
+**/Win64/
+**/Android/
+**/iOSDevice64/
+**/OSX64/
+**/OSXARM64/
+
+# Delphi generated files
+*.dcu
+*.dcuil
+*.exe
+*.dll
+*.bpl
+*.map
+*.tds
+*.rsm
+*.drc
+*.identcache
+*.stat
+*.local
+
+# Delphi history / backup
+__history/
+*.~*
+*.bak
+
+# User / IDE state
+*.dproj.local
+*.dsk
+*.dsv
+
+# SQLite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# Windows / macOS
+Thumbs.db
+.DS_Store
