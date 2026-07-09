@@ -20,15 +20,15 @@ type
     FDatabase: TDatabase;
 
     procedure HandleCommandGet(AContext: TIdContext; ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
-    procedure RouteRequest(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo );
+    procedure RouteRequest(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 
     procedure HandlePing(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleNotFound(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleNote(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
-    procedure SendJson(AResponseInfo: TIdHTTPResponseInfo; const AJson: string; AStatusCode: Integer = 200 );
-
-    procedure HandleCommandOther(AContext: TIdContext; ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleSave(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+
+    procedure SendJson(AResponseInfo: TIdHTTPResponseInfo; const AJson: string; AStatusCode: Integer = 200);
+    function JsonEscape(const S: string): string;
 
   public
     constructor Create(ADatabase: TDatabase);
@@ -88,6 +88,7 @@ begin
 
     Exit;
   end;
+
   RouteRequest(ARequestInfo, AResponseInfo);
 end;
 
@@ -115,7 +116,6 @@ procedure THttpServer.HandleNote(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo
 var
   MessageID: string;
   Note: TNote;
-  Content: string;
 begin
   MessageID := ARequestInfo.Params.Values['messageId'];
 
@@ -135,15 +135,51 @@ begin
       Exit;
     end;
 
-    Content := StringReplace(Note.Content, '\', '\\', [rfReplaceAll]);
-    Content := StringReplace(Content, '"', '\"', [rfReplaceAll]);
-    Content := StringReplace(Content, #13#10, '\n', [rfReplaceAll]);
-    Content := StringReplace(Content, #10, '\n', [rfReplaceAll]);
+    SendJson(AResponseInfo,
+      '{"found":true,' +
+      '"content":"' + JsonEscape(Note.Content) + '",' +
+      '"links":"' + JsonEscape(Note.Links) + '",' +
+      '"createdAt":"' + JsonEscape(Note.CreatedAt) + '",' +
+      '"modifiedAt":"' + JsonEscape(Note.ModifiedAt) + '"' +
+      '}');
+  finally
+    Note.Free;
+  end;
+end;
 
-    SendJson(
-      AResponseInfo,
-      '{"found":true,"content":"' + Content + '"}'
-    );
+procedure THttpServer.HandleSave(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+var
+  MessageID: string;
+  ConversationID: string;
+  Content: string;
+  Links: string;
+  Note: TNote;
+begin
+  MessageID := ARequestInfo.Params.Values['messageId'];
+  ConversationID := ARequestInfo.Params.Values['conversationId'];
+  Content := ARequestInfo.Params.Values['content'];
+  Links := ARequestInfo.Params.Values['links'];
+
+  if MessageID = '' then
+  begin
+    SendJson(AResponseInfo, '{"error":"missing_messageId"}', 400);
+    Exit;
+  end;
+
+  Note := FDatabase.FindByMessageID(MessageID);
+
+  if not Assigned(Note) then
+    Note := TNote.Create(MessageID);
+
+  try
+    Note.ConversationID := ConversationID;
+    Note.Content := Content;
+    Note.Links := Links;
+
+    FDatabase.Save(Note);
+
+    SendJson(AResponseInfo,
+      '{"saved":true,"id":' + Note.ID.ToString + '}');
   finally
     Note.Free;
   end;
@@ -156,47 +192,13 @@ begin
   AResponseInfo.ContentText := AJson;
 end;
 
-procedure THttpServer.HandleSave(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
-var
-  MessageID: string;
-  ConversationID: string;
-  Content: string;
-  Note: TNote;
+function THttpServer.JsonEscape(const S: string): string;
 begin
-  MessageID := ARequestInfo.Params.Values['messageId'];
-  ConversationID := ARequestInfo.Params.Values['conversationId'];
-  Content := ARequestInfo.Params.Values['content'];
-  if MessageID = '' then
-  begin
-    SendJson(AResponseInfo, '{"error":"missing_messageId"}', 400);
-    Exit;
-  end;
-
-  Note := FDatabase.FindByMessageID(MessageID);
-  if not Assigned(Note) then
-    Note := TNote.Create(MessageID);
-  try
-    Note.ConversationID := ConversationID;
-    Note.Content := Content;
-    FDatabase.Save(Note);
-    SendJson(
-      AResponseInfo,
-      '{"saved":true,"id":' + Note.ID.ToString + '}'
-    );
-  finally
-    Note.Free;
-  end;
-end;
-
-procedure THttpServer.HandleCommandOther(AContext: TIdContext; ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
-begin
-  if (ARequestInfo.Command = 'POST') and
-     SameText(ARequestInfo.Document, '/note') then
-  begin
-    HandleSave(ARequestInfo, AResponseInfo);
-  end
-  else
-    HandleNotFound(AResponseInfo);
+  Result := StringReplace(S, '\', '\\', [rfReplaceAll]);
+  Result := StringReplace(Result, '"', '\"', [rfReplaceAll]);
+  Result := StringReplace(Result, #13#10, '\n', [rfReplaceAll]);
+  Result := StringReplace(Result, #13, '\n', [rfReplaceAll]);
+  Result := StringReplace(Result, #10, '\n', [rfReplaceAll]);
 end;
 
 end.

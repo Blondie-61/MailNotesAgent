@@ -88,7 +88,8 @@ begin
 
     Query.SQL.Text :=
       'SELECT ' +
-      '  ID, MessageID, ConversationID, Content, CreatedAt, ModifiedAt, IsFavorite ' +
+      '  ID, MessageID, ConversationID, Content, Links, ' +
+      '  CreatedAt, ModifiedAt, IsFavorite, IsDeleted, DeletedAt ' +
       'FROM Note ' +
       'WHERE MessageID = :MessageID ' +
       '  AND IsDeleted = 0 ' +
@@ -104,9 +105,12 @@ begin
       Result.MessageID      := Query.FieldByName('MessageID'     ).AsString;
       Result.ConversationID := Query.FieldByName('ConversationID').AsString;
       Result.Content        := Query.FieldByName('Content'       ).AsString;
+      Result.Links          := Query.FieldByName('Links'         ).AsString;
       Result.CreatedAt      := Query.FieldByName('CreatedAt'     ).AsString;
       Result.ModifiedAt     := Query.FieldByName('ModifiedAt'    ).AsString;
       Result.IsFavorite     := Query.FieldByName('IsFavorite'    ).AsInteger <> 0;
+      Result.IsDeleted      := Query.FieldByName('IsDeleted'     ).AsInteger <> 0;
+      Result.DeletedAt      := Query.FieldByName('DeletedAt'     ).AsString;
     end;
 
   finally
@@ -170,13 +174,14 @@ begin
 
         Query.SQL.Text :=
           'INSERT INTO Note ' +
-          '(MessageID, ConversationID, Content, CreatedAt, ModifiedAt, IsFavorite, IsDeleted) ' +
+          '(MessageID, ConversationID, Content, Links, CreatedAt, ModifiedAt, IsFavorite, IsDeleted) ' +
           'VALUES ' +
-          '(:MessageID, :ConversationID, :Content, :CreatedAt, :ModifiedAt, :IsFavorite, 0)';
+          '(:MessageID, :ConversationID, :Content, :Links, :CreatedAt, :ModifiedAt, :IsFavorite, 0)';
 
         Query.ParamByName('MessageID'     ).AsString  := Note.MessageID;
         Query.ParamByName('ConversationID').AsString  := Note.ConversationID;
         Query.ParamByName('Content'       ).AsString  := Note.Content;
+        Query.ParamByName('Links'         ).AsString  := Note.Links;
         Query.ParamByName('CreatedAt'     ).AsString  := Note.CreatedAt;
         Query.ParamByName('ModifiedAt'    ).AsString  := Note.ModifiedAt;
         Query.ParamByName('IsFavorite'    ).AsInteger := Ord(Note.IsFavorite);
@@ -193,12 +198,14 @@ begin
           'UPDATE Note SET ' +
           'ConversationID = :ConversationID, ' +
           'Content = :Content, ' +
+          'Links = :Links, ' +
           'ModifiedAt = :ModifiedAt, ' +
           'IsFavorite = :IsFavorite ' +
           'WHERE ID = :ID';
 
         Query.ParamByName('ConversationID').AsString  := Note.ConversationID;
         Query.ParamByName('Content'       ).AsString  := Note.Content;
+        Query.ParamByName('Links'         ).AsString  := Note.Links;
         Query.ParamByName('ModifiedAt'    ).AsString  := Note.ModifiedAt;
         Query.ParamByName('IsFavorite'    ).AsInteger := Ord(Note.IsFavorite);
         Query.ParamByName('ID'            ).AsInteger := Note.ID;

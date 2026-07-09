@@ -9,9 +9,14 @@ type
     MessageID: string;
     ConversationID: string;
     Content: string;
+    Links: string;
+
     CreatedAt: string;
     ModifiedAt: string;
+
     IsFavorite: Boolean;
+    IsDeleted: Boolean;
+    DeletedAt: string;
 
     constructor Create; overload;
     constructor Create(const AMessageID: string); overload;
@@ -22,7 +27,9 @@ implementation
 constructor TNote.Create;
 begin
   inherited Create;
+
   IsFavorite := False;
+  IsDeleted := False;
 end;
 
 constructor TNote.Create(const AMessageID: string);
