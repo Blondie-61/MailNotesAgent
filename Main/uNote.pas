@@ -18,6 +18,10 @@ type
     IsDeleted: Boolean;
     DeletedAt: string;
 
+    Subject: string;
+    SenderName: string;
+    MailDate: string;
+
     constructor Create; overload;
     constructor Create(const AMessageID: string); overload;
   end;
