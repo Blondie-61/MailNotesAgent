@@ -94,9 +94,7 @@ begin
     FConnection.Close;
 end;
 
-function TDatabase.FindByMessageID(
-  const MessageID: string
-): TNote;
+function TDatabase.FindByMessageID(const MessageID: string): TNote;
 var
   Query: TFDQuery;
 begin
@@ -108,7 +106,7 @@ begin
 
     Query.SQL.Text :=
       'SELECT ' +
-      '  ID, MessageID, ConversationID, Content, Links, ' +
+      '  ID, MessageID, ConversationID, ItemID, Content, Links, ' +
       '  Subject, SenderName, MailDate, ' +
       '  CreatedAt, ModifiedAt, IsFavorite, IsDeleted, DeletedAt ' +
       'FROM Note ' +
@@ -123,44 +121,20 @@ begin
     begin
       Result := TNote.Create;
 
-      Result.ID :=
-        Query.FieldByName('ID').AsInteger;
-
-      Result.MessageID :=
-        Query.FieldByName('MessageID').AsString;
-
-      Result.ConversationID :=
-        Query.FieldByName('ConversationID').AsString;
-
-      Result.Content :=
-        Query.FieldByName('Content').AsString;
-
-      Result.Links :=
-        Query.FieldByName('Links').AsString;
-
-      Result.Subject :=
-        Query.FieldByName('Subject').AsString;
-
-      Result.SenderName :=
-        Query.FieldByName('SenderName').AsString;
-
-      Result.MailDate :=
-        Query.FieldByName('MailDate').AsString;
-
-      Result.CreatedAt :=
-        Query.FieldByName('CreatedAt').AsString;
-
-      Result.ModifiedAt :=
-        Query.FieldByName('ModifiedAt').AsString;
-
-      Result.IsFavorite :=
-        Query.FieldByName('IsFavorite').AsInteger <> 0;
-
-      Result.IsDeleted :=
-        Query.FieldByName('IsDeleted').AsInteger <> 0;
-
-      Result.DeletedAt :=
-        Query.FieldByName('DeletedAt').AsString;
+      Result.ID             := Query.FieldByName('ID'            ).AsInteger;
+      Result.MessageID      := Query.FieldByName('MessageID'     ).AsString;
+      Result.ConversationID := Query.FieldByName('ConversationID').AsString;
+      Result.ItemID         := Query.FieldByName('ItemID'        ).AsString;
+      Result.Content        := Query.FieldByName('Content'       ).AsString;
+      Result.Links          := Query.FieldByName('Links'         ).AsString;
+      Result.Subject        := Query.FieldByName('Subject'       ).AsString;
+      Result.SenderName     := Query.FieldByName('SenderName'    ).AsString;
+      Result.MailDate       := Query.FieldByName('MailDate'      ).AsString;
+      Result.CreatedAt      := Query.FieldByName('CreatedAt'     ).AsString;
+      Result.ModifiedAt     := Query.FieldByName('ModifiedAt'    ).AsString;
+      Result.IsFavorite     := Query.FieldByName('IsFavorite'    ).AsInteger <> 0;
+      Result.IsDeleted      := Query.FieldByName('IsDeleted'     ).AsInteger <> 0;
+      Result.DeletedAt      := Query.FieldByName('DeletedAt'     ).AsString;
     end;
 
   finally
@@ -228,13 +202,13 @@ begin
         Query.SQL.Text :=
           'INSERT INTO Note ' +
           '(' +
-          '  MessageID, ConversationID, Subject, SenderName, ' +
+          '  MessageID, ConversationID, ItemID, Subject, SenderName, ' +
           '  MailDate, Content, Links, CreatedAt, ModifiedAt, ' +
           '  IsFavorite, IsDeleted' +
           ') ' +
           'VALUES ' +
           '(' +
-          '  :MessageID, :ConversationID, :Subject, :SenderName, ' +
+          '  :MessageID, :ConversationID, :ItemID, :Subject, :SenderName, ' +
           '  :MailDate, :Content, :Links, :CreatedAt, :ModifiedAt, ' +
           '  :IsFavorite, 0' +
           ')';
@@ -244,6 +218,9 @@ begin
 
         Query.ParamByName('ConversationID').AsString :=
           Note.ConversationID;
+
+        Query.ParamByName('ItemID').AsString :=
+          Note.ItemID;
 
         Query.ParamByName('Subject').AsString :=
           Note.Subject;
@@ -281,6 +258,7 @@ begin
         Query.SQL.Text :=
           'UPDATE Note SET ' +
           '  ConversationID = :ConversationID, ' +
+          '  ItemID = :ItemID, ' +
           '  Subject = :Subject, ' +
           '  SenderName = :SenderName, ' +
           '  MailDate = :MailDate, ' +
@@ -292,6 +270,9 @@ begin
 
         Query.ParamByName('ConversationID').AsString :=
           Note.ConversationID;
+
+        Query.ParamByName('ItemID').AsString :=
+          Note.ItemID;
 
         Query.ParamByName('Subject').AsString :=
           Note.Subject;

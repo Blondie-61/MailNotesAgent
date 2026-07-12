@@ -20,54 +20,18 @@ type
     FServer: TIdHTTPServer;
     FDatabase: TDatabase;
 
-    procedure HandleCommandGet(
-      AContext: TIdContext;
-      ARequestInfo: TIdHTTPRequestInfo;
-      AResponseInfo: TIdHTTPResponseInfo
-    );
+    procedure HandleCommandGet(AContext: TIdContext; ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+    procedure RouteRequest(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 
-    procedure RouteRequest(
-      ARequestInfo: TIdHTTPRequestInfo;
-      AResponseInfo: TIdHTTPResponseInfo
-    );
+    procedure HandlePing(AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleNotFound(AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleNote(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleSave(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleResolve(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleBacklinks(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 
-    procedure HandlePing(
-      AResponseInfo: TIdHTTPResponseInfo
-    );
-
-    procedure HandleNotFound(
-      AResponseInfo: TIdHTTPResponseInfo
-    );
-
-    procedure HandleNote(
-      ARequestInfo: TIdHTTPRequestInfo;
-      AResponseInfo: TIdHTTPResponseInfo
-    );
-
-    procedure HandleSave(
-      ARequestInfo: TIdHTTPRequestInfo;
-      AResponseInfo: TIdHTTPResponseInfo
-    );
-
-    procedure HandleResolve(
-      ARequestInfo: TIdHTTPRequestInfo;
-      AResponseInfo: TIdHTTPResponseInfo
-    );
-
-    procedure HandleBacklinks(
-      ARequestInfo: TIdHTTPRequestInfo;
-      AResponseInfo: TIdHTTPResponseInfo
-    );
-
-    procedure SendJson(
-      AResponseInfo: TIdHTTPResponseInfo;
-      const AJson: string;
-      AStatusCode: Integer = 200
-    );
-
-    function JsonEscape(
-      const S: string
-    ): string;
+    procedure SendJson(AResponseInfo: TIdHTTPResponseInfo; const AJson: string; AStatusCode: Integer = 200);
+    function JsonEscape(const S: string): string;
 
   public
     constructor Create(ADatabase: TDatabase);
@@ -79,9 +43,7 @@ type
 
 implementation
 
-constructor THttpServer.Create(
-  ADatabase: TDatabase
-);
+constructor THttpServer.Create(ADatabase: TDatabase);
 begin
   inherited Create;
 
@@ -118,11 +80,7 @@ begin
     FServer.Active := False;
 end;
 
-procedure THttpServer.HandleCommandGet(
-  AContext: TIdContext;
-  ARequestInfo: TIdHTTPRequestInfo;
-  AResponseInfo: TIdHTTPResponseInfo
-);
+procedure THttpServer.HandleCommandGet(AContext: TIdContext; ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 begin
   if SameText(ARequestInfo.Command, 'POST') then
   begin
@@ -137,30 +95,21 @@ begin
   RouteRequest(ARequestInfo, AResponseInfo);
 end;
 
-procedure THttpServer.RouteRequest(
-  ARequestInfo: TIdHTTPRequestInfo;
-  AResponseInfo: TIdHTTPResponseInfo
-);
+procedure THttpServer.RouteRequest(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 begin
   if SameText(ARequestInfo.Document, '/ping') then
     HandlePing(AResponseInfo)
-
   else if SameText(ARequestInfo.Document, '/note') then
     HandleNote(ARequestInfo, AResponseInfo)
-
   else if SameText(ARequestInfo.Document, '/resolve') then
     HandleResolve(ARequestInfo, AResponseInfo)
-
   else if SameText(ARequestInfo.Document, '/backlinks') then
     HandleBacklinks(ARequestInfo, AResponseInfo)
-
   else
     HandleNotFound(AResponseInfo);
 end;
 
-procedure THttpServer.HandlePing(
-  AResponseInfo: TIdHTTPResponseInfo
-);
+procedure THttpServer.HandlePing(AResponseInfo: TIdHTTPResponseInfo);
 begin
   SendJson(
     AResponseInfo,
@@ -168,9 +117,7 @@ begin
   );
 end;
 
-procedure THttpServer.HandleNotFound(
-  AResponseInfo: TIdHTTPResponseInfo
-);
+procedure THttpServer.HandleNotFound(AResponseInfo: TIdHTTPResponseInfo);
 begin
   SendJson(
     AResponseInfo,
@@ -179,16 +126,12 @@ begin
   );
 end;
 
-procedure THttpServer.HandleNote(
-  ARequestInfo: TIdHTTPRequestInfo;
-  AResponseInfo: TIdHTTPResponseInfo
-);
+procedure THttpServer.HandleNote(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 var
   MessageID: string;
   Note: TNote;
 begin
-  MessageID :=
-    ARequestInfo.Params.Values['messageId'];
+  MessageID := ARequestInfo.Params.Values['messageId'];
 
   if MessageID = '' then
   begin
@@ -201,11 +144,7 @@ begin
     Exit;
   end;
 
-  MessageID :=
-    TNetEncoding.URL.Decode(MessageID);
-
-  Note :=
-    FDatabase.FindByMessageID(MessageID);
+  Note := FDatabase.FindByMessageID(MessageID);
 
   try
     if not Assigned(Note) then
@@ -242,13 +181,11 @@ begin
   end;
 end;
 
-procedure THttpServer.HandleSave(
-  ARequestInfo: TIdHTTPRequestInfo;
-  AResponseInfo: TIdHTTPResponseInfo
-);
+procedure THttpServer.HandleSave(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 var
   MessageID: string;
   ConversationID: string;
+  ItemID: string;
   Subject: string;
   SenderName: string;
   MailDate: string;
@@ -256,26 +193,14 @@ var
   Links: string;
   Note: TNote;
 begin
-  MessageID :=
-    ARequestInfo.Params.Values['messageId'];
-
-  ConversationID :=
-    ARequestInfo.Params.Values['conversationId'];
-
-  Subject :=
-    ARequestInfo.Params.Values['subject'];
-
-  SenderName :=
-    ARequestInfo.Params.Values['senderName'];
-
-  MailDate :=
-    ARequestInfo.Params.Values['mailDate'];
-
-  Content :=
-    ARequestInfo.Params.Values['content'];
-
-  Links :=
-    ARequestInfo.Params.Values['links'];
+  MessageID      := ARequestInfo.Params.Values['messageId'     ];
+  ConversationID := ARequestInfo.Params.Values['conversationId'];
+  ItemID         := ARequestInfo.Params.Values['itemId'        ];
+  Subject        := ARequestInfo.Params.Values['subject'       ];
+  SenderName     := ARequestInfo.Params.Values['senderName'    ];
+  MailDate       := ARequestInfo.Params.Values['mailDate'      ];
+  Content        := ARequestInfo.Params.Values['content'       ];
+  Links          := ARequestInfo.Params.Values['links'         ];
 
   if MessageID = '' then
   begin
@@ -288,19 +213,19 @@ begin
     Exit;
   end;
 
-  Note :=
-    FDatabase.FindByMessageID(MessageID);
+  Note := FDatabase.FindByMessageID(MessageID);
 
   if not Assigned(Note) then
     Note := TNote.Create(MessageID);
 
   try
     Note.ConversationID := ConversationID;
-    Note.Subject := Subject;
-    Note.SenderName := SenderName;
-    Note.MailDate := MailDate;
-    Note.Content := Content;
-    Note.Links := Links;
+    Note.ItemID         := ItemID;
+    Note.Subject        := Subject;
+    Note.SenderName     := SenderName;
+    Note.MailDate       := MailDate;
+    Note.Content        := Content;
+    Note.Links          := Links;
 
     FDatabase.Save(Note);
 
@@ -316,17 +241,13 @@ begin
   end;
 end;
 
-procedure THttpServer.HandleResolve(
-  ARequestInfo: TIdHTTPRequestInfo;
-  AResponseInfo: TIdHTTPResponseInfo
-);
+procedure THttpServer.HandleResolve(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 var
   Link: string;
   MessageID: string;
   Note: TNote;
 begin
-  Link :=
-    ARequestInfo.Params.Values['link'];
+  Link := ARequestInfo.Params.Values['link'];
 
   if Link = '' then
   begin
@@ -339,9 +260,6 @@ begin
     Exit;
   end;
 
-  Link :=
-    TNetEncoding.URL.Decode(Link);
-
   if not Link.StartsWith('mailnotes:', True) then
   begin
     SendJson(
@@ -352,22 +270,19 @@ begin
     Exit;
   end;
 
-  MessageID :=
-    Copy(
-      Link,
-      Length('mailnotes:') + 1,
-      MaxInt
-    );
+  MessageID := Copy(
+    Link,
+    Length('mailnotes:') + 1,
+    MaxInt
+  );
 
   try
-    MessageID :=
-      TNetEncoding.URL.Decode(MessageID);
+    MessageID := TNetEncoding.URL.Decode(MessageID);
   except
-    { Bereits dekodiert. }
+    { Bereits dekodiert oder ungültige Kodierung. }
   end;
 
-  Note :=
-    FDatabase.FindByMessageID(MessageID);
+  Note := FDatabase.FindByMessageID(MessageID);
 
   try
     if not Assigned(Note) then
@@ -380,34 +295,24 @@ begin
       Exit;
     end;
 
-    SendJson(
-      AResponseInfo,
-      '{' +
-      '"found":true,' +
-      '"type":"mail",' +
-      '"title":"' +
-        JsonEscape(Note.Subject) +
-      '",' +
-      '"subtitle":"' +
-        JsonEscape(Note.SenderName) +
-        ' · ' +
-        JsonEscape(Note.MailDate) +
-      '",' +
-      '"messageId":"' +
-        JsonEscape(Note.MessageID) +
-      '"' +
-      '}'
-    );
+SendJson(
+  AResponseInfo,
+  '{' +
+  '"found":true,' +
+  '"type":"mail",' +
+  '"title":"' + JsonEscape(Note.Subject) + '",' +
+  '"subtitle":"' + JsonEscape(Note.SenderName) + ' · ' + JsonEscape(Note.MailDate) + '",' +
+  '"messageId":"' + JsonEscape(Note.MessageID) + '",' +
+  '"itemId":"' + JsonEscape(Note.ItemID) + '"' +
+  '}'
+);
 
   finally
     Note.Free;
   end;
 end;
 
-procedure THttpServer.HandleBacklinks(
-  ARequestInfo: TIdHTTPRequestInfo;
-  AResponseInfo: TIdHTTPResponseInfo
-);
+procedure THttpServer.HandleBacklinks(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 var
   MessageID: string;
   Backlinks: TObjectList<TNote>;
@@ -415,8 +320,7 @@ var
   Json: TStringBuilder;
   IsFirst: Boolean;
 begin
-  MessageID :=
-    ARequestInfo.Params.Values['messageId'];
+  MessageID := ARequestInfo.Params.Values['messageId'];
 
   if MessageID = '' then
   begin
@@ -429,18 +333,20 @@ begin
     Exit;
   end;
 
-  MessageID :=
-    TNetEncoding.URL.Decode(MessageID);
-
-  Backlinks :=
-    FDatabase.GetBacklinks(MessageID);
-
+  Backlinks := FDatabase.GetBacklinks(MessageID);
   Json := TStringBuilder.Create;
 
   try
     Json.Append('{');
     Json.Append('"found":');
-    Json.Append(LowerCase(BoolToStr(Backlinks.Count > 0, True)));
+    Json.Append(
+      LowerCase(
+        BoolToStr(
+          Backlinks.Count > 0,
+          True
+        )
+      )
+    );
     Json.Append(',');
     Json.Append('"items":[');
 
@@ -457,6 +363,10 @@ begin
 
       Json.Append('"messageId":"');
       Json.Append(JsonEscape(Note.MessageID));
+      Json.Append('",');
+
+      Json.Append('"itemId":"');
+      Json.Append(JsonEscape(Note.ItemID));
       Json.Append('",');
 
       Json.Append('"subject":"');
@@ -488,62 +398,20 @@ begin
   end;
 end;
 
-procedure THttpServer.SendJson(
-  AResponseInfo: TIdHTTPResponseInfo;
-  const AJson: string;
-  AStatusCode: Integer
-);
+procedure THttpServer.SendJson(AResponseInfo: TIdHTTPResponseInfo; const AJson: string; AStatusCode: Integer);
 begin
   AResponseInfo.ResponseNo := AStatusCode;
-  AResponseInfo.ContentType :=
-    'application/json; charset=utf-8';
-
+  AResponseInfo.ContentType := 'application/json; charset=utf-8';
   AResponseInfo.ContentText := AJson;
 end;
 
-function THttpServer.JsonEscape(
-  const S: string
-): string;
+function THttpServer.JsonEscape(const S: string): string;
 begin
-  Result :=
-    StringReplace(
-      S,
-      '\',
-      '\\',
-      [rfReplaceAll]
-    );
-
-  Result :=
-    StringReplace(
-      Result,
-      '"',
-      '\"',
-      [rfReplaceAll]
-    );
-
-  Result :=
-    StringReplace(
-      Result,
-      #13#10,
-      '\n',
-      [rfReplaceAll]
-    );
-
-  Result :=
-    StringReplace(
-      Result,
-      #13,
-      '\n',
-      [rfReplaceAll]
-    );
-
-  Result :=
-    StringReplace(
-      Result,
-      #10,
-      '\n',
-      [rfReplaceAll]
-    );
+  Result := StringReplace(S, '\', '\\', [rfReplaceAll]);
+  Result := StringReplace(Result, '"', '\"', [rfReplaceAll]);
+  Result := StringReplace(Result, #13#10, '\n', [rfReplaceAll]);
+  Result := StringReplace(Result, #13, '\n', [rfReplaceAll]);
+  Result := StringReplace(Result, #10, '\n', [rfReplaceAll]);
 end;
 
 end.

@@ -6,6 +6,7 @@ type
   TNote = class
   public
     ID: Integer;
+    ItemID: string;
     MessageID: string;
     ConversationID: string;
     Content: string;

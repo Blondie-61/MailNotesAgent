@@ -10,6 +10,8 @@ uses
 
 var
   Database: TDatabase;
+  HttpServer: THttpServer;
+  Note: TNote;
 
 const
   DEBUG = True;
@@ -23,27 +25,9 @@ end;
 begin
   Database := TDatabase.Create;
   try
-
     Write('Opening database........');
     Database.Open;
     Writeln('OK');
-
-    Write('Finding note............');
-
-    var Note := Database.FindByMessageID('<TEST>');
-    try
-      if Assigned(Note) then
-      begin
-        Writeln('OK');
-        Writeln('Content: ', Note.Content);
-      end
-      else
-      begin
-        Writeln('FAILED');
-      end;
-    finally
-      Note.Free;
-    end;
 
     Write('Saving note.............');
 
@@ -54,10 +38,15 @@ begin
       Note := TNote.Create;
       Note.MessageID      := '<SELFTEST>';
       Note.ConversationID := '<SELFTEST>';
+      Note.Subject        := 'MailNotesAgent Selftest';
+      Note.SenderName     := 'MailNotesAgent';
+      Note.MailDate       := '';
+      Note.ItemID         := '';
     end;
 
     try
-      Note.Content := 'Selftest ' +
+      Note.Content :=
+        'Selftest ' +
         FormatDateTime('yyyy-mm-dd hh:nn:ss', Now);
 
       Note.IsFavorite := False;
@@ -65,28 +54,43 @@ begin
       Database.Save(Note);
 
       Writeln('OK');
-
-      Write('Starting HTTP server...');
-      var HttpServer := THttpServer.Create(Database);
-      try
-        HttpServer.Start;
-        Writeln('OK');
-        Writeln('Listening on http://127.0.0.1:48571');
-
-        Writeln;
-        Writeln('Press ENTER to exit...');
-        Readln;
-      finally
-        HttpServer.Free;
-      end;
-
     finally
       Note.Free;
     end;
 
+    Write('Finding note............');
+
+    Note := Database.FindByMessageID('<SELFTEST>');
+    try
+      if Assigned(Note) then
+      begin
+        Writeln('OK');
+        Log('Content: ' + Note.Content);
+      end
+      else
+        Writeln('FAILED');
+    finally
+      Note.Free;
+    end;
+
+    Write('Starting HTTP server...');
+
+    HttpServer := THttpServer.Create(Database);
+    try
+      HttpServer.Start;
+
+      Writeln('OK');
+      Writeln('Listening on http://127.0.0.1:48571');
+      Writeln;
+      Writeln('Press ENTER to exit...');
+
+      Readln;
+    finally
+      HttpServer.Free;
+    end;
+
   finally
     Database.Free;
-end;
+  end;
 
 end.
-
