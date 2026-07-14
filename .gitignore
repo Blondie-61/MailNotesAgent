@@ -35,6 +35,12 @@ __history/
 *.sqlite-wal
 *.sqlite-shm
 
+# Diff
+Backup/
+MailNotesAgent_LinkBuffer_Source/
+MailNotes_SQL/
+Data/*.sqbpro
+
 # Windows / macOS
 Thumbs.db
 .DS_Store

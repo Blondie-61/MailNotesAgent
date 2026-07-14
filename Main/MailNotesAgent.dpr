@@ -6,6 +6,7 @@ uses
   System.SysUtils,
   uDatabase in 'uDatabase.pas',
   uNote in 'uNote.pas',
+  uLinkBuffer in 'uLinkBuffer.pas',
   uHttpServer in 'uHttpServer.pas';
 
 var

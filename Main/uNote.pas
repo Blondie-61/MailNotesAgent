@@ -6,9 +6,14 @@ type
   TNote = class
   public
     ID: Integer;
+    MailNotesID: string;
+
     ItemID: string;
+    ImmutableID: string;
     MessageID: string;
     ConversationID: string;
+    MailboxAddress: string;
+
     Content: string;
     Links: string;
 
@@ -21,6 +26,7 @@ type
 
     Subject: string;
     SenderName: string;
+    SenderAddress: string;
     MailDate: string;
 
     constructor Create; overload;
@@ -35,6 +41,7 @@ begin
 
   IsFavorite := False;
   IsDeleted := False;
+  Links := '[]';
 end;
 
 constructor TNote.Create(const AMessageID: string);
