@@ -1,4 +1,4 @@
-unit uHttpServer;
+﻿unit uHttpServer;
 
 interface
 
@@ -28,6 +28,7 @@ type
     procedure HandleNotFound(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleNote(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleSave(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleMailRefresh(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleResolve(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleBacklinks(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleLinkBufferSet(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
@@ -87,6 +88,8 @@ begin
   begin
     if SameText(ARequestInfo.Document, '/note') then
       HandleSave(ARequestInfo, AResponseInfo)
+    else if SameText(ARequestInfo.Document, '/mail/refresh') then
+      HandleMailRefresh(ARequestInfo, AResponseInfo)
     else if SameText(ARequestInfo.Document, '/linkbuffer') then
       HandleLinkBufferSet(ARequestInfo, AResponseInfo)
     else
@@ -124,7 +127,7 @@ end;
 
 procedure THttpServer.HandlePing(AResponseInfo: TIdHTTPResponseInfo);
 begin
-  SendJson(AResponseInfo, '{"status":"ok","version":"0.2.0","schema":1}');
+  SendJson(AResponseInfo, '{"status":"ok","version":"0.4.0","schema":1,"identity":"MailNotesID"}');
 end;
 
 procedure THttpServer.HandleNotFound(AResponseInfo: TIdHTTPResponseInfo);
@@ -134,21 +137,43 @@ end;
 
 procedure THttpServer.HandleNote(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 var
+  MailNotesID: string;
   MessageID: string;
   Note: TNote;
 begin
+  MailNotesID := ARequestInfo.Params.Values['mailNotesId'];
   MessageID := ARequestInfo.Params.Values['messageId'];
-  if MessageID = '' then
+
+  if (MailNotesID = '') and (MessageID = '') then
   begin
-    SendJson(AResponseInfo, '{"error":"missing_messageId"}', 400);
+    SendJson(AResponseInfo, '{"error":"missing_mail_identity"}', 400);
     Exit;
   end;
 
-  Note := FDatabase.FindByMessageID(MessageID);
+  if MailNotesID <> '' then
+    Note := FDatabase.FindByMailNotesID(MailNotesID)
+  else
+    Note := FDatabase.FindByMessageID(MessageID);
+
   try
-    if not Assigned(Note) or (Note.ID = 0) then
+    if not Assigned(Note) then
     begin
       SendJson(AResponseInfo, '{"found":false}');
+      Exit;
+    end;
+
+    // Eine Mail kann bereits durch einen MailLink bekannt sein, ohne selbst
+    // eine Notiz zu besitzen. Die MailNotesID muss trotzdem an das Taskpane
+    // zurückgegeben werden, damit SHL ihre technische Outlook-ID aktualisiert.
+    if Note.ID = 0 then
+    begin
+      SendJson(
+        AResponseInfo,
+        '{' +
+        '"found":false,' +
+        '"mailNotesId":"' + JsonEscape(Note.MailNotesID) + '"' +
+        '}'
+      );
       Exit;
     end;
 
@@ -170,22 +195,36 @@ end;
 
 procedure THttpServer.HandleSave(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 var
+  MailNotesID: string;
   MessageID: string;
   Note: TNote;
 begin
+  MailNotesID := ARequestInfo.Params.Values['mailNotesId'];
   MessageID := ARequestInfo.Params.Values['messageId'];
-  if MessageID = '' then
+
+  if (MailNotesID = '') and (MessageID = '') then
   begin
-    SendJson(AResponseInfo, '{"error":"missing_messageId"}', 400);
+    SendJson(AResponseInfo, '{"error":"missing_mail_identity"}', 400);
     Exit;
   end;
 
-  Note := FDatabase.FindByMessageID(MessageID);
+  if MailNotesID <> '' then
+    Note := FDatabase.FindByMailNotesID(MailNotesID)
+  else
+    Note := FDatabase.FindByMessageID(MessageID);
+
   if not Assigned(Note) then
+  begin
     Note := TNote.Create(MessageID);
+    Note.MailNotesID := MailNotesID;
+  end;
 
   try
-    Note.MailNotesID := ARequestInfo.Params.Values['mailNotesId'];
+    if MailNotesID <> '' then
+      Note.MailNotesID := MailNotesID;
+    if MessageID <> '' then
+      Note.MessageID := MessageID;
+
     Note.ConversationID := ARequestInfo.Params.Values['conversationId'];
     Note.ItemID := ARequestInfo.Params.Values['itemId'];
     Note.ImmutableID := ARequestInfo.Params.Values['immutableId'];
@@ -205,6 +244,73 @@ begin
       '"saved":true,' +
       '"id":' + Note.ID.ToString + ',' +
       '"mailNotesId":"' + JsonEscape(Note.MailNotesID) + '"' +
+      '}'
+    );
+  finally
+    Note.Free;
+  end;
+end;
+
+procedure THttpServer.HandleMailRefresh(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+var
+  MailNotesID: string;
+  MessageID: string;
+  OldItemID: string;
+  Note: TNote;
+  WasUpdated: Boolean;
+begin
+  MailNotesID := ARequestInfo.Params.Values['mailNotesId'];
+  MessageID := ARequestInfo.Params.Values['messageId'];
+
+  if (MailNotesID = '') and (MessageID = '') then
+  begin
+    SendJson(AResponseInfo, '{"error":"missing_mail_identity"}', 400);
+    Exit;
+  end;
+
+  if MailNotesID <> '' then
+    Note := FDatabase.FindByMailNotesID(MailNotesID)
+  else
+    Note := FDatabase.FindByMessageID(MessageID);
+
+  if not Assigned(Note) then
+  begin
+    // Eine bisher unbekannte Mail wird hier nur in der Mail-Tabelle
+    // registriert. Es wird keine leere Notiz angelegt.
+    Note := TNote.Create(MessageID);
+    Note.MailNotesID := MailNotesID;
+  end;
+
+  try
+    OldItemID := Note.ItemID;
+
+    if MessageID <> '' then
+      Note.MessageID := MessageID;
+
+    Note.ItemID := ARequestInfo.Params.Values['itemId'];
+    Note.ImmutableID := ARequestInfo.Params.Values['immutableId'];
+    Note.ConversationID := ARequestInfo.Params.Values['conversationId'];
+    Note.MailboxAddress := ARequestInfo.Params.Values['mailboxAddress'];
+    Note.Subject := ARequestInfo.Params.Values['subject'];
+    Note.SenderName := ARequestInfo.Params.Values['senderName'];
+    Note.SenderAddress := ARequestInfo.Params.Values['senderAddress'];
+    Note.MailDate := ARequestInfo.Params.Values['mailDate'];
+
+    WasUpdated :=
+      (Note.ItemID <> '') and
+      (OldItemID <> '') and
+      not SameText(Note.ItemID, OldItemID);
+
+    FDatabase.RefreshMailIdentity(Note);
+
+    SendJson(
+      AResponseInfo,
+      '{' +
+      '"found":true,' +
+      '"updated":' + LowerCase(BoolToStr(WasUpdated, True)) + ',' +
+      '"mailNotesId":"' + JsonEscape(Note.MailNotesID) + '",' +
+      '"oldItemId":"' + JsonEscape(OldItemID) + '",' +
+      '"itemId":"' + JsonEscape(Note.ItemID) + '"' +
       '}'
     );
   finally
@@ -265,20 +371,23 @@ end;
 
 procedure THttpServer.HandleBacklinks(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 var
-  MessageID: string;
+  TargetToken: string;
   Backlinks: TObjectList<TNote>;
   Note: TNote;
   Json: TStringBuilder;
   IsFirst: Boolean;
 begin
-  MessageID := ARequestInfo.Params.Values['messageId'];
-  if MessageID = '' then
+  TargetToken := ARequestInfo.Params.Values['mailNotesId'];
+  if TargetToken = '' then
+    TargetToken := ARequestInfo.Params.Values['messageId'];
+
+  if TargetToken = '' then
   begin
-    SendJson(AResponseInfo, '{"error":"missing_messageId"}', 400);
+    SendJson(AResponseInfo, '{"error":"missing_mail_identity"}', 400);
     Exit;
   end;
 
-  Backlinks := FDatabase.GetBacklinks(MessageID);
+  Backlinks := FDatabase.GetBacklinks(TargetToken);
   Json := TStringBuilder.Create;
   try
     Json.Append('{"found":');
@@ -327,9 +436,9 @@ begin
     LinkBuffer.SenderAddress := ARequestInfo.Params.Values['senderAddress'];
     LinkBuffer.MailDate := ARequestInfo.Params.Values['mailDate'];
 
-    if LinkBuffer.MessageID = '' then
+    if (LinkBuffer.MailNotesID = '') and (LinkBuffer.MessageID = '') then
     begin
-      SendJson(AResponseInfo, '{"error":"missing_messageId"}', 400);
+      SendJson(AResponseInfo, '{"error":"missing_mail_identity"}', 400);
       Exit;
     end;
 

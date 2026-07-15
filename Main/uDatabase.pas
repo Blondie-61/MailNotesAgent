@@ -1,4 +1,4 @@
-unit uDatabase;
+﻿unit uDatabase;
 
 interface
 
@@ -34,13 +34,14 @@ type
     procedure Close;
 
     procedure Save(Note: TNote);
+    procedure RefreshMailIdentity(Note: TNote);
 
     function FindByMessageID(const MessageID: string): TNote;
     function FindByMailNotesID(const MailNotesID: string): TNote;
     function FindMailByLinkToken(const LinkToken: string): TNote;
 
     function GetBacklinks(
-      const TargetMessageID: string
+      const TargetToken: string
     ): TObjectList<TNote>;
 
     procedure SaveLinkBuffer(LinkBuffer: TLinkBuffer);
@@ -310,10 +311,10 @@ var
   Query: TFDQuery;
   NowUTC: string;
 begin
-  if Note.MessageID = '' then
-    raise Exception.Create('Note.MessageID is empty.');
+  if (Note.MailNotesID = '') and (Note.MessageID = '') then
+    raise Exception.Create('MailNotesID and MessageID are empty.');
 
-  if Note.MailNotesID = '' then
+  if (Note.MailNotesID = '') and (Note.MessageID <> '') then
     Note.MailNotesID := FindMailNotesIDByMessageID(Note.MessageID);
 
   if Note.MailNotesID = '' then
@@ -336,15 +337,15 @@ begin
       ' :SenderAddress, :ReceivedUTC, :CreatedUTC, :ModifiedUTC, 0' +
       ') ' +
       'ON CONFLICT(MailNotesID) DO UPDATE SET ' +
-      ' ItemID = excluded.ItemID, ' +
-      ' ImmutableID = excluded.ImmutableID, ' +
-      ' InternetMessageID = excluded.InternetMessageID, ' +
-      ' ConversationID = excluded.ConversationID, ' +
-      ' MailboxAddress = excluded.MailboxAddress, ' +
-      ' Subject = excluded.Subject, ' +
-      ' SenderName = excluded.SenderName, ' +
-      ' SenderAddress = excluded.SenderAddress, ' +
-      ' ReceivedUTC = excluded.ReceivedUTC, ' +
+      ' ItemID = COALESCE(NULLIF(excluded.ItemID, ''''), Mail.ItemID), ' +
+      ' ImmutableID = COALESCE(NULLIF(excluded.ImmutableID, ''''), Mail.ImmutableID), ' +
+      ' InternetMessageID = COALESCE(NULLIF(excluded.InternetMessageID, ''''), Mail.InternetMessageID), ' +
+      ' ConversationID = COALESCE(NULLIF(excluded.ConversationID, ''''), Mail.ConversationID), ' +
+      ' MailboxAddress = COALESCE(NULLIF(excluded.MailboxAddress, ''''), Mail.MailboxAddress), ' +
+      ' Subject = COALESCE(NULLIF(excluded.Subject, ''''), Mail.Subject), ' +
+      ' SenderName = COALESCE(NULLIF(excluded.SenderName, ''''), Mail.SenderName), ' +
+      ' SenderAddress = COALESCE(NULLIF(excluded.SenderAddress, ''''), Mail.SenderAddress), ' +
+      ' ReceivedUTC = COALESCE(NULLIF(excluded.ReceivedUTC, ''''), Mail.ReceivedUTC), ' +
       ' ModifiedUTC = excluded.ModifiedUTC';
 
     Query.ParamByName('MailNotesID').AsString := Note.MailNotesID;
@@ -385,6 +386,24 @@ begin
     LinkBuffer.MailNotesID := Note.MailNotesID;
   finally
     Note.Free;
+  end;
+end;
+
+procedure TDatabase.RefreshMailIdentity(Note: TNote);
+begin
+  if not Assigned(Note) then
+    raise Exception.Create('Note is not assigned.');
+
+  if not FConnection.InTransaction then
+    FConnection.StartTransaction;
+
+  try
+    EnsureMailForNote(Note);
+    FConnection.Commit;
+  except
+    if FConnection.InTransaction then
+      FConnection.Rollback;
+    raise;
   end;
 end;
 
@@ -534,8 +553,8 @@ begin
   if not Assigned(LinkBuffer) then
     raise Exception.Create('LinkBuffer is not assigned.');
 
-  if LinkBuffer.MessageID = '' then
-    raise Exception.Create('LinkBuffer.MessageID is empty.');
+  if (LinkBuffer.MailNotesID = '') and (LinkBuffer.MessageID = '') then
+    raise Exception.Create('LinkBuffer.MailNotesID and MessageID are empty.');
 
   if not FConnection.InTransaction then
     FConnection.StartTransaction;
@@ -630,7 +649,7 @@ begin
 end;
 
 function TDatabase.GetBacklinks(
-  const TargetMessageID: string
+  const TargetToken: string
 ): TObjectList<TNote>;
 var
   TargetMailNotesID: string;
@@ -638,7 +657,7 @@ var
   Note: TNote;
 begin
   Result := TObjectList<TNote>.Create(True);
-  TargetMailNotesID := FindMailNotesIDByToken(TargetMessageID);
+  TargetMailNotesID := FindMailNotesIDByToken(TargetToken);
 
   if TargetMailNotesID = '' then
     Exit;
