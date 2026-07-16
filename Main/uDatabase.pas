@@ -22,7 +22,8 @@ uses
   FireDAC.Comp.Client,
 
   uNote,
-  uLinkBuffer;
+  uLinkBuffer,
+  uRepairQueue;
 
 type
   TDatabase = class
@@ -48,12 +49,20 @@ type
     function LoadLinkBuffer: TLinkBuffer;
     procedure ClearLinkBuffer;
 
+    procedure AddRepairQueueItem(Item: TRepairQueueItem);
+    function GetRepairQueueCount: Integer;
+    function GetRepairQueue: TObjectList<TRepairQueueItem>;
+    procedure SetRepairQueueStatus(const ID, Status: Integer);
+    procedure CompleteRepairQueueByIdentity(const MailNotesID, MessageID: string);
+
   private
     FConnection: TFDConnection;
 
     function FindDatabasePath: string;
     function GetCurrentUTC: string;
     function CreateMailNotesID: string;
+
+    procedure EnsureSchema;
 
     procedure EnsureMailForNote(Note: TNote);
     procedure EnsureMailForBuffer(LinkBuffer: TLinkBuffer);
@@ -113,6 +122,43 @@ begin
     FConnection.Connected := True;
 
   FConnection.ExecSQL('PRAGMA foreign_keys = ON');
+  EnsureSchema;
+end;
+
+
+procedure TDatabase.EnsureSchema;
+begin
+  FConnection.ExecSQL(
+    'CREATE TABLE IF NOT EXISTS SHLRepairQueue (' +
+    ' ID INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,' +
+    ' MailNotesID TEXT NOT NULL,' +
+    ' OldItemID TEXT,' +
+    ' InternetMessageID TEXT,' +
+    ' Subject TEXT,' +
+    ' SenderName TEXT,' +
+    ' SenderAddress TEXT,' +
+    ' ReceivedUTC TEXT,' +
+    ' Reason TEXT NOT NULL,' +
+    ' CreatedUTC TEXT NOT NULL,' +
+    ' ModifiedUTC TEXT NOT NULL,' +
+    ' RetryCount INTEGER NOT NULL DEFAULT 0,' +
+    ' Status INTEGER NOT NULL DEFAULT 0,' +
+    ' FOREIGN KEY (MailNotesID) REFERENCES Mail(MailNotesID)' +
+    '   ON UPDATE CASCADE ON DELETE CASCADE,' +
+    ' UNIQUE (MailNotesID),' +
+    ' CHECK (Status IN (0, 1, 2, 3))' +
+    ')'
+  );
+
+  FConnection.ExecSQL(
+    'CREATE INDEX IF NOT EXISTS IX_SHLRepairQueue_Status ' +
+    'ON SHLRepairQueue(Status, CreatedUTC)'
+  );
+
+  FConnection.ExecSQL(
+    'UPDATE SchemaInfo SET SchemaVersion = 2 ' +
+    'WHERE SchemaVersion < 2'
+  );
 end;
 
 procedure TDatabase.Close;
@@ -709,5 +755,131 @@ begin
 
   Query.Free;
 end;
+
+
+procedure TDatabase.AddRepairQueueItem(Item: TRepairQueueItem);
+var
+  Query: TFDQuery;
+  NowUTC: string;
+begin
+  if Item.MailNotesID = '' then
+    raise Exception.Create('MailNotesID is empty.');
+
+  NowUTC := GetCurrentUTC;
+  Query := TFDQuery.Create(nil);
+  try
+    Query.Connection := FConnection;
+    Query.SQL.Text :=
+      'INSERT INTO SHLRepairQueue (' +
+      ' MailNotesID, OldItemID, InternetMessageID, Subject, SenderName,' +
+      ' SenderAddress, ReceivedUTC, Reason, CreatedUTC, ModifiedUTC,' +
+      ' RetryCount, Status' +
+      ') VALUES (' +
+      ' :MailNotesID, :OldItemID, :MessageID, :Subject, :SenderName,' +
+      ' :SenderAddress, :ReceivedUTC, :Reason, :CreatedUTC, :ModifiedUTC,' +
+      ' 0, 0' +
+      ') ON CONFLICT(MailNotesID) DO UPDATE SET' +
+      ' OldItemID = excluded.OldItemID,' +
+      ' InternetMessageID = COALESCE(NULLIF(excluded.InternetMessageID, ''''), SHLRepairQueue.InternetMessageID),' +
+      ' Subject = COALESCE(NULLIF(excluded.Subject, ''''), SHLRepairQueue.Subject),' +
+      ' SenderName = COALESCE(NULLIF(excluded.SenderName, ''''), SHLRepairQueue.SenderName),' +
+      ' SenderAddress = COALESCE(NULLIF(excluded.SenderAddress, ''''), SHLRepairQueue.SenderAddress),' +
+      ' ReceivedUTC = COALESCE(NULLIF(excluded.ReceivedUTC, ''''), SHLRepairQueue.ReceivedUTC),' +
+      ' Reason = excluded.Reason,' +
+      ' ModifiedUTC = excluded.ModifiedUTC,' +
+      ' RetryCount = SHLRepairQueue.RetryCount + 1,' +
+      ' Status = 0';
+
+    Query.ParamByName('MailNotesID').AsString := Item.MailNotesID;
+    Query.ParamByName('OldItemID').AsString := Item.OldItemID;
+    Query.ParamByName('MessageID').AsString := Item.MessageID;
+    Query.ParamByName('Subject').AsString := Item.Subject;
+    Query.ParamByName('SenderName').AsString := Item.SenderName;
+    Query.ParamByName('SenderAddress').AsString := Item.SenderAddress;
+    Query.ParamByName('ReceivedUTC').AsString := Item.MailDate;
+    Query.ParamByName('Reason').AsString := Item.Reason;
+    Query.ParamByName('CreatedUTC').AsString := NowUTC;
+    Query.ParamByName('ModifiedUTC').AsString := NowUTC;
+    Query.ExecSQL;
+  finally
+    Query.Free;
+  end;
+end;
+
+function TDatabase.GetRepairQueueCount: Integer;
+begin
+  Result := FConnection.ExecSQLScalar(
+    'SELECT COUNT(*) FROM SHLRepairQueue WHERE Status IN (0, 1)'
+  );
+end;
+
+function TDatabase.GetRepairQueue: TObjectList<TRepairQueueItem>;
+var
+  Query: TFDQuery;
+  Item: TRepairQueueItem;
+begin
+  Result := TObjectList<TRepairQueueItem>.Create(True);
+  Query := TFDQuery.Create(nil);
+  try
+    Query.Connection := FConnection;
+    Query.SQL.Text :=
+      'SELECT ID, MailNotesID, OldItemID, InternetMessageID, Subject,' +
+      ' SenderName, SenderAddress, ReceivedUTC, Reason, CreatedUTC,' +
+      ' ModifiedUTC, RetryCount, Status' +
+      ' FROM SHLRepairQueue WHERE Status IN (0, 1)' +
+      ' ORDER BY CreatedUTC, ID';
+    Query.Open;
+
+    while not Query.Eof do
+    begin
+      Item := TRepairQueueItem.Create;
+      Item.ID := Query.FieldByName('ID').AsInteger;
+      Item.MailNotesID := Query.FieldByName('MailNotesID').AsString;
+      Item.OldItemID := Query.FieldByName('OldItemID').AsString;
+      Item.MessageID := Query.FieldByName('InternetMessageID').AsString;
+      Item.Subject := Query.FieldByName('Subject').AsString;
+      Item.SenderName := Query.FieldByName('SenderName').AsString;
+      Item.SenderAddress := Query.FieldByName('SenderAddress').AsString;
+      Item.MailDate := Query.FieldByName('ReceivedUTC').AsString;
+      Item.Reason := Query.FieldByName('Reason').AsString;
+      Item.CreatedAt := Query.FieldByName('CreatedUTC').AsString;
+      Item.ModifiedAt := Query.FieldByName('ModifiedUTC').AsString;
+      Item.RetryCount := Query.FieldByName('RetryCount').AsInteger;
+      Item.Status := Query.FieldByName('Status').AsInteger;
+      Result.Add(Item);
+      Query.Next;
+    end;
+  except
+    Query.Free;
+    Result.Free;
+    raise;
+  end;
+  Query.Free;
+end;
+
+procedure TDatabase.SetRepairQueueStatus(const ID, Status: Integer);
+begin
+  FConnection.ExecSQL(
+    'UPDATE SHLRepairQueue SET Status = :Status, ModifiedUTC = :ModifiedUTC' +
+    ' WHERE ID = :ID',
+    [Status, GetCurrentUTC, ID]
+  );
+end;
+
+procedure TDatabase.CompleteRepairQueueByIdentity(
+  const MailNotesID, MessageID: string
+);
+begin
+  if (MailNotesID = '') and (MessageID = '') then
+    Exit;
+
+  FConnection.ExecSQL(
+    'UPDATE SHLRepairQueue SET Status = 2, ModifiedUTC = :ModifiedUTC' +
+    ' WHERE Status IN (0, 1)' +
+    ' AND (MailNotesID = :MailNotesID OR InternetMessageID = :MessageID)',
+    [GetCurrentUTC, MailNotesID, MessageID]
+  );
+end;
+
 
 end.

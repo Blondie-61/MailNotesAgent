@@ -33,6 +33,7 @@ PRAGMA table_info(Mail);
 PRAGMA table_info(Note);
 PRAGMA table_info(MailLink);
 PRAGMA table_info(AppState);
+PRAGMA table_info(SHLRepairQueue);
 
 -- Fremdschluesseldefinitionen
 PRAGMA foreign_key_list(Note);

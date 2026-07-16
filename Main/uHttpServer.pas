@@ -4,6 +4,7 @@ interface
 
 uses
   System.SysUtils,
+  System.IOUtils,
   System.NetEncoding,
   System.Generics.Collections,
 
@@ -13,13 +14,15 @@ uses
 
   uDatabase,
   uNote,
-  uLinkBuffer;
+  uLinkBuffer,
+  uRepairQueue;
 
 type
   THttpServer = class
   private
     FServer: TIdHTTPServer;
     FDatabase: TDatabase;
+    FLogLock: TObject;
 
     procedure HandleCommandGet(AContext: TIdContext; ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure RouteRequest(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
@@ -28,15 +31,21 @@ type
     procedure HandleNotFound(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleNote(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleSave(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleLog(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleMailRefresh(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleResolve(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleBacklinks(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleLinkBufferSet(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleLinkBufferGet(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleLinkBufferClear(AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleRepairQueueAdd(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleRepairQueueCount(AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleRepairQueueList(AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleRepairQueueStatus(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 
     procedure SendJson(AResponseInfo: TIdHTTPResponseInfo; const AJson: string; AStatusCode: Integer = 200);
     function JsonEscape(const S: string): string;
+    procedure LogToFile(const ASource, AEvent, AData: string);
 
   public
     constructor Create(ADatabase: TDatabase);
@@ -48,10 +57,14 @@ type
 
 implementation
 
+const
+  ENABLE_LOGGING = False;
+
 constructor THttpServer.Create(ADatabase: TDatabase);
 begin
   inherited Create;
   FDatabase := ADatabase;
+  FLogLock := TObject.Create;
   FServer := TIdHTTPServer.Create(nil);
   FServer.OnCommandGet := HandleCommandGet;
 end;
@@ -62,6 +75,7 @@ begin
     Stop;
   finally
     FServer.Free;
+    FLogLock.Free;
   end;
   inherited;
 end;
@@ -88,10 +102,16 @@ begin
   begin
     if SameText(ARequestInfo.Document, '/note') then
       HandleSave(ARequestInfo, AResponseInfo)
+    else if SameText(ARequestInfo.Document, '/log') then
+      HandleLog(ARequestInfo, AResponseInfo)
     else if SameText(ARequestInfo.Document, '/mail/refresh') then
       HandleMailRefresh(ARequestInfo, AResponseInfo)
     else if SameText(ARequestInfo.Document, '/linkbuffer') then
       HandleLinkBufferSet(ARequestInfo, AResponseInfo)
+    else if SameText(ARequestInfo.Document, '/repairqueue') then
+      HandleRepairQueueAdd(ARequestInfo, AResponseInfo)
+    else if SameText(ARequestInfo.Document, '/repairqueue/status') then
+      HandleRepairQueueStatus(ARequestInfo, AResponseInfo)
     else
       HandleNotFound(AResponseInfo);
     Exit;
@@ -121,13 +141,17 @@ begin
     HandleBacklinks(ARequestInfo, AResponseInfo)
   else if SameText(ARequestInfo.Document, '/linkbuffer') then
     HandleLinkBufferGet(AResponseInfo)
+  else if SameText(ARequestInfo.Document, '/repairqueue/count') then
+    HandleRepairQueueCount(AResponseInfo)
+  else if SameText(ARequestInfo.Document, '/repairqueue') then
+    HandleRepairQueueList(AResponseInfo)
   else
     HandleNotFound(AResponseInfo);
 end;
 
 procedure THttpServer.HandlePing(AResponseInfo: TIdHTTPResponseInfo);
 begin
-  SendJson(AResponseInfo, '{"status":"ok","version":"0.4.0","schema":1,"identity":"MailNotesID"}');
+  SendJson(AResponseInfo, '{"status":"ok","version":"0.5.0","schema":2,"identity":"MailNotesID"}');
 end;
 
 procedure THttpServer.HandleNotFound(AResponseInfo: TIdHTTPResponseInfo);
@@ -251,6 +275,41 @@ begin
   end;
 end;
 
+procedure THttpServer.LogToFile(const ASource, AEvent, AData: string);
+var
+  Line: string;
+  LogFileName: string;
+begin
+  if not ENABLE_LOGGING then
+    Exit;
+
+  LogFileName := TPath.Combine(ExtractFilePath(ParamStr(0)), 'MailNotesAgent.log');
+  Line :=
+    FormatDateTime('yyyy-mm-dd hh:nn:ss.zzz', Now) +
+    ' [' + ASource + '] ' + AEvent;
+
+  if AData <> '' then
+    Line := Line + ' ' + AData;
+
+  TMonitor.Enter(FLogLock);
+  try
+    TFile.AppendAllText(LogFileName, Line + sLineBreak, TEncoding.UTF8);
+  finally
+    TMonitor.Exit(FLogLock);
+  end;
+end;
+
+procedure THttpServer.HandleLog(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+begin
+  LogToFile(
+    'Outlook Add-in',
+    ARequestInfo.Params.Values['event'],
+    ARequestInfo.Params.Values['data']
+  );
+
+  SendJson(AResponseInfo, '{"logged":true}');
+end;
+
 procedure THttpServer.HandleMailRefresh(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 var
   MailNotesID: string;
@@ -302,6 +361,16 @@ begin
       not SameText(Note.ItemID, OldItemID);
 
     FDatabase.RefreshMailIdentity(Note);
+    FDatabase.CompleteRepairQueueByIdentity(Note.MailNotesID, Note.MessageID);
+
+    if WasUpdated then
+      LogToFile(
+        'Agent',
+        'SHL repaired',
+        'oldItemId=' + OldItemID +
+        ' itemId=' + Note.ItemID +
+        ' mailNotesId=' + Note.MailNotesID
+      );
 
     SendJson(
       AResponseInfo,
@@ -496,6 +565,111 @@ begin
   FDatabase.ClearLinkBuffer;
   SendJson(AResponseInfo, '{"cleared":true}');
 end;
+
+
+procedure THttpServer.HandleRepairQueueAdd(
+  ARequestInfo: TIdHTTPRequestInfo;
+  AResponseInfo: TIdHTTPResponseInfo
+);
+var
+  Item: TRepairQueueItem;
+begin
+  Item := TRepairQueueItem.Create;
+  try
+    Item.MailNotesID := ARequestInfo.Params.Values['mailNotesId'];
+    Item.OldItemID := ARequestInfo.Params.Values['oldItemId'];
+    Item.MessageID := ARequestInfo.Params.Values['messageId'];
+    Item.Subject := ARequestInfo.Params.Values['subject'];
+    Item.SenderName := ARequestInfo.Params.Values['senderName'];
+    Item.SenderAddress := ARequestInfo.Params.Values['senderAddress'];
+    Item.MailDate := ARequestInfo.Params.Values['mailDate'];
+    Item.Reason := ARequestInfo.Params.Values['reason'];
+
+    if Item.MailNotesID = '' then
+    begin
+      SendJson(AResponseInfo, '{"error":"missing_mailnotes_id"}', 400);
+      Exit;
+    end;
+
+    if Item.Reason = '' then
+      Item.Reason := 'stored_item_id_invalid';
+
+    FDatabase.AddRepairQueueItem(Item);
+    SendJson(AResponseInfo, '{"queued":true}');
+  finally
+    Item.Free;
+  end;
+end;
+
+procedure THttpServer.HandleRepairQueueCount(AResponseInfo: TIdHTTPResponseInfo);
+begin
+  SendJson(
+    AResponseInfo,
+    '{"count":' + FDatabase.GetRepairQueueCount.ToString + '}'
+  );
+end;
+
+procedure THttpServer.HandleRepairQueueList(AResponseInfo: TIdHTTPResponseInfo);
+var
+  Items: TObjectList<TRepairQueueItem>;
+  Item: TRepairQueueItem;
+  Json: TStringBuilder;
+  IsFirst: Boolean;
+begin
+  Items := FDatabase.GetRepairQueue;
+  Json := TStringBuilder.Create;
+  try
+    Json.Append('{"items":[');
+    IsFirst := True;
+    for Item in Items do
+    begin
+      if not IsFirst then
+        Json.Append(',');
+      IsFirst := False;
+
+      Json.Append('{');
+      Json.Append('"id":' + Item.ID.ToString + ',');
+      Json.Append('"mailNotesId":"' + JsonEscape(Item.MailNotesID) + '",');
+      Json.Append('"oldItemId":"' + JsonEscape(Item.OldItemID) + '",');
+      Json.Append('"messageId":"' + JsonEscape(Item.MessageID) + '",');
+      Json.Append('"subject":"' + JsonEscape(Item.Subject) + '",');
+      Json.Append('"senderName":"' + JsonEscape(Item.SenderName) + '",');
+      Json.Append('"senderAddress":"' + JsonEscape(Item.SenderAddress) + '",');
+      Json.Append('"mailDate":"' + JsonEscape(Item.MailDate) + '",');
+      Json.Append('"reason":"' + JsonEscape(Item.Reason) + '",');
+      Json.Append('"retryCount":' + Item.RetryCount.ToString + ',');
+      Json.Append('"status":' + Item.Status.ToString);
+      Json.Append('}');
+    end;
+    Json.Append(']}');
+    SendJson(AResponseInfo, Json.ToString);
+  finally
+    Json.Free;
+    Items.Free;
+  end;
+end;
+
+procedure THttpServer.HandleRepairQueueStatus(
+  ARequestInfo: TIdHTTPRequestInfo;
+  AResponseInfo: TIdHTTPResponseInfo
+);
+var
+  ID: Integer;
+  Status: Integer;
+begin
+  ID := StrToIntDef(ARequestInfo.Params.Values['id'], 0);
+  Status := StrToIntDef(ARequestInfo.Params.Values['status'], -1);
+
+  if (ID <= 0) or not (Status in [0, 1, 2, 3]) then
+  begin
+    SendJson(AResponseInfo, '{"error":"invalid_status_request"}', 400);
+    Exit;
+  end;
+
+  FDatabase.SetRepairQueueStatus(ID, Status);
+  SendJson(AResponseInfo, '{"updated":true}');
+end;
+
 
 procedure THttpServer.SendJson(AResponseInfo: TIdHTTPResponseInfo; const AJson: string; AStatusCode: Integer);
 begin

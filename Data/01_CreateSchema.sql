@@ -12,7 +12,7 @@ CREATE TABLE SchemaInfo
 );
 
 INSERT INTO SchemaInfo (SchemaVersion, CreatedUTC)
-VALUES (1, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+VALUES (2, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
 
 -- Fachliche Identitaet einer E-Mail in MailNotes.
 -- MailNotesID bleibt stabil; Outlook-IDs duerfen sich beim Verschieben aendern.
@@ -146,3 +146,32 @@ CREATE TABLE AppState
 -- Der Schluessel wird von Anfang an angelegt und ist zunaechst leer.
 INSERT INTO AppState (Key, Value, ModifiedUTC)
 VALUES ('ActiveLinkBuffer', NULL, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+
+
+-- Warteschlange fuer nicht mehr erreichbare gespeicherte Outlook-IDs.
+CREATE TABLE SHLRepairQueue
+(
+    ID                INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    MailNotesID       TEXT    NOT NULL UNIQUE,
+    OldItemID         TEXT,
+    InternetMessageID TEXT,
+    Subject           TEXT,
+    SenderName        TEXT,
+    SenderAddress     TEXT,
+    ReceivedUTC       TEXT,
+    Reason            TEXT    NOT NULL,
+    CreatedUTC        TEXT    NOT NULL,
+    ModifiedUTC       TEXT    NOT NULL,
+    RetryCount        INTEGER NOT NULL DEFAULT 0,
+    Status            INTEGER NOT NULL DEFAULT 0,
+
+    FOREIGN KEY (MailNotesID)
+        REFERENCES Mail(MailNotesID)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    CHECK (Status IN (0, 1, 2, 3))
+);
+
+CREATE INDEX IX_SHLRepairQueue_Status
+    ON SHLRepairQueue(Status, CreatedUTC);

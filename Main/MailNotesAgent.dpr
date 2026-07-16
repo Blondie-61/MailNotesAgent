@@ -1,4 +1,4 @@
-program MailNotesAgent;
+﻿program MailNotesAgent;
 
 {$APPTYPE CONSOLE}
 
@@ -7,6 +7,7 @@ uses
   uDatabase in 'uDatabase.pas',
   uNote in 'uNote.pas',
   uLinkBuffer in 'uLinkBuffer.pas',
+  uRepairQueue in 'uRepairQueue.pas',
   uHttpServer in 'uHttpServer.pas';
 
 var
