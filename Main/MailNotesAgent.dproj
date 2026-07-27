@@ -4,12 +4,11 @@
         <ProjectVersion>20.4</ProjectVersion>
         <FrameworkType>None</FrameworkType>
         <Base>True</Base>
-        <Config Condition="'$(Config)'==''">Debug</Config>
-        <Platform Condition="'$(Platform)'==''">Win64</Platform>
+        <Config Condition="'$(Config)'==''">Release</Config>
+        <Platform Condition="'$(Platform)'==''">OSXARM64</Platform>
         <TargetedPlatforms>131075</TargetedPlatforms>
         <AppType>Console</AppType>
         <MainSource>MailNotesAgent.dpr</MainSource>
-        <ProjectName Condition="'$(ProjectName)'==''">MailNotesAgent</ProjectName>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
         <Base>true</Base>
@@ -215,6 +214,8 @@
         </DelphiCompile>
         <DCCReference Include="uDatabase.pas"/>
         <DCCReference Include="uNote.pas"/>
+        <DCCReference Include="uLinkBuffer.pas"/>
+        <DCCReference Include="uRepairQueue.pas"/>
         <DCCReference Include="uHttpServer.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>

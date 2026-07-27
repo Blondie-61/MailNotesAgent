@@ -12,7 +12,7 @@ CREATE TABLE SchemaInfo
 );
 
 INSERT INTO SchemaInfo (SchemaVersion, CreatedUTC)
-VALUES (2, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+VALUES (3, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
 
 -- Fachliche Identitaet einer E-Mail in MailNotes.
 -- MailNotesID bleibt stabil; Outlook-IDs duerfen sich beim Verschieben aendern.
@@ -175,3 +175,15 @@ CREATE TABLE SHLRepairQueue
 
 CREATE INDEX IX_SHLRepairQueue_Status
     ON SHLRepairQueue(Status, CreatedUTC);
+
+
+-- Volltextindex fuer Notiztext und Mail-Metadaten.
+CREATE VIRTUAL TABLE MailNoteSearch USING fts5
+(
+    MailNotesID UNINDEXED,
+    Content,
+    Subject,
+    SenderName,
+    SenderAddress,
+    tokenize = 'unicode61 remove_diacritics 2'
+);

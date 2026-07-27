@@ -45,6 +45,11 @@ type
       const TargetToken: string
     ): TObjectList<TNote>;
 
+    function SearchNotes(
+      const SearchText: string;
+      const MaxResults: Integer = 50
+    ): TObjectList<TNote>;
+
     procedure SaveLinkBuffer(LinkBuffer: TLinkBuffer);
     function LoadLinkBuffer: TLinkBuffer;
     procedure ClearLinkBuffer;
@@ -66,6 +71,8 @@ type
 
     procedure EnsureMailForNote(Note: TNote);
     procedure EnsureMailForBuffer(LinkBuffer: TLinkBuffer);
+    procedure UpdateSearchEntry(const MailNotesID: string);
+    function BuildSearchExpression(const SearchText: string): string;
 
     function FindMailNotesIDByMessageID(
       const MessageID: string
@@ -156,8 +163,31 @@ begin
   );
 
   FConnection.ExecSQL(
-    'UPDATE SchemaInfo SET SchemaVersion = 2 ' +
-    'WHERE SchemaVersion < 2'
+    'CREATE VIRTUAL TABLE IF NOT EXISTS MailNoteSearch USING fts5(' +
+    ' MailNotesID UNINDEXED,' +
+    ' Content,' +
+    ' Subject,' +
+    ' SenderName,' +
+    ' SenderAddress,' +
+    ' tokenize = ''unicode61 remove_diacritics 2''' +
+    ')'
+  );
+
+  // Der Index wird beim Start aus den Fachdaten neu aufgebaut. Das ist bei
+  // lokalen MailNotes-Daten schnell und vermeidet fragile Triggerlogik.
+  FConnection.ExecSQL('DELETE FROM MailNoteSearch');
+  FConnection.ExecSQL(
+    'INSERT INTO MailNoteSearch ' +
+    '(MailNotesID, Content, Subject, SenderName, SenderAddress) ' +
+    'SELECT M.MailNotesID, N.Content, M.Subject, M.SenderName, M.SenderAddress ' +
+    'FROM Note N ' +
+    'JOIN Mail M ON M.MailNotesID = N.MailNotesID ' +
+    'WHERE N.IsDeleted = 0'
+  );
+
+  FConnection.ExecSQL(
+    'UPDATE SchemaInfo SET SchemaVersion = 3 ' +
+    'WHERE SchemaVersion < 3'
   );
 end;
 
@@ -435,6 +465,126 @@ begin
   end;
 end;
 
+procedure TDatabase.UpdateSearchEntry(const MailNotesID: string);
+var
+  Query: TFDQuery;
+begin
+  if MailNotesID = '' then
+    Exit;
+
+  Query := TFDQuery.Create(nil);
+  try
+    Query.Connection := FConnection;
+    Query.SQL.Text :=
+      'DELETE FROM MailNoteSearch WHERE MailNotesID = :MailNotesID';
+    Query.ParamByName('MailNotesID').AsString := MailNotesID;
+    Query.ExecSQL;
+
+    Query.SQL.Text :=
+      'INSERT INTO MailNoteSearch ' +
+      '(MailNotesID, Content, Subject, SenderName, SenderAddress) ' +
+      'SELECT M.MailNotesID, N.Content, M.Subject, M.SenderName, M.SenderAddress ' +
+      'FROM Note N ' +
+      'JOIN Mail M ON M.MailNotesID = N.MailNotesID ' +
+      'WHERE N.MailNotesID = :MailNotesID AND N.IsDeleted = 0';
+    Query.ParamByName('MailNotesID').AsString := MailNotesID;
+    Query.ExecSQL;
+  finally
+    Query.Free;
+  end;
+end;
+
+function TDatabase.BuildSearchExpression(const SearchText: string): string;
+var
+  Parts: TStringList;
+  SearchWords: TStringList;
+  Word: string;
+  CleanText: string;
+begin
+  Result := '';
+  CleanText := StringReplace(SearchText, #9, ' ', [rfReplaceAll]);
+  CleanText := StringReplace(CleanText, #13, ' ', [rfReplaceAll]);
+  CleanText := StringReplace(CleanText, #10, ' ', [rfReplaceAll]);
+
+  Parts := TStringList.Create;
+  SearchWords := TStringList.Create;
+  try
+    Parts.StrictDelimiter := True;
+    Parts.Delimiter := ' ';
+    Parts.DelimitedText := CleanText;
+
+    for Word in Parts do
+      if Trim(Word) <> '' then
+        SearchWords.Add('"' + StringReplace(Trim(Word), '"', '""', [rfReplaceAll]) + '"*');
+
+    Result := StringReplace(Trim(SearchWords.Text), sLineBreak, ' AND ', [rfReplaceAll]);
+  finally
+    SearchWords.Free;
+    Parts.Free;
+  end;
+end;
+
+function TDatabase.SearchNotes(
+  const SearchText: string;
+  const MaxResults: Integer
+): TObjectList<TNote>;
+var
+  Query: TFDQuery;
+  Note: TNote;
+  SearchExpression: string;
+  ResultLimit: Integer;
+begin
+  Result := TObjectList<TNote>.Create(True);
+  SearchExpression := BuildSearchExpression(SearchText);
+  if SearchExpression = '' then
+    Exit;
+
+  ResultLimit := MaxResults;
+  if ResultLimit < 1 then
+    ResultLimit := 1
+  else if ResultLimit > 100 then
+    ResultLimit := 100;
+
+  Query := TFDQuery.Create(nil);
+  try
+    Query.Connection := FConnection;
+    Query.SQL.Text :=
+      'SELECT M.MailNotesID, M.ItemID, M.InternetMessageID, M.Subject, ' +
+      ' M.SenderName, M.SenderAddress, M.ReceivedUTC, N.Content, N.ModifiedUTC, ' +
+      ' snippet(MailNoteSearch, 1, ''['', '']'', '' … '', 18) AS SearchSnippet, ' +
+      ' bm25(MailNoteSearch, 0.0, 7.0, 4.0, 2.0, 2.0) AS SearchRank ' +
+      'FROM MailNoteSearch ' +
+      'JOIN Mail M ON M.MailNotesID = MailNoteSearch.MailNotesID ' +
+      'JOIN Note N ON N.MailNotesID = M.MailNotesID ' +
+      'WHERE MailNoteSearch MATCH :SearchExpression AND N.IsDeleted = 0 ' +
+      'ORDER BY SearchRank, N.ModifiedUTC DESC ' +
+      'LIMIT :ResultLimit';
+    Query.ParamByName('SearchExpression').AsString := SearchExpression;
+    Query.ParamByName('ResultLimit').AsInteger := ResultLimit;
+    Query.Open;
+
+    while not Query.Eof do
+    begin
+      Note := TNote.Create;
+      Note.MailNotesID := Query.FieldByName('MailNotesID').AsString;
+      Note.ItemID := Query.FieldByName('ItemID').AsString;
+      Note.MessageID := Query.FieldByName('InternetMessageID').AsString;
+      Note.Subject := Query.FieldByName('Subject').AsString;
+      Note.SenderName := Query.FieldByName('SenderName').AsString;
+      Note.SenderAddress := Query.FieldByName('SenderAddress').AsString;
+      Note.MailDate := Query.FieldByName('ReceivedUTC').AsString;
+      Note.Content := Query.FieldByName('Content').AsString;
+      Note.ModifiedAt := Query.FieldByName('ModifiedUTC').AsString;
+      Note.SearchSnippet := Query.FieldByName('SearchSnippet').AsString;
+      Note.SearchRank := Query.FieldByName('SearchRank').AsFloat;
+      Result.Add(Note);
+      Query.Next;
+    end;
+  finally
+    Query.Free;
+  end;
+end;
+
 procedure TDatabase.RefreshMailIdentity(Note: TNote);
 begin
   if not Assigned(Note) then
@@ -445,6 +595,7 @@ begin
 
   try
     EnsureMailForNote(Note);
+    UpdateSearchEntry(Note.MailNotesID);
     FConnection.Commit;
   except
     if FConnection.InTransaction then
@@ -510,6 +661,7 @@ begin
     end;
 
     UpdateMailLinks(Note.MailNotesID, Note.Links);
+    UpdateSearchEntry(Note.MailNotesID);
     FConnection.Commit;
   except
     if FConnection.InTransaction then

@@ -1,4 +1,4 @@
-unit uNote;
+﻿unit uNote;
 
 interface
 
@@ -28,6 +28,9 @@ type
     SenderName: string;
     SenderAddress: string;
     MailDate: string;
+
+    SearchSnippet: string;
+    SearchRank: Double;
 
     constructor Create; overload;
     constructor Create(const AMessageID: string); overload;

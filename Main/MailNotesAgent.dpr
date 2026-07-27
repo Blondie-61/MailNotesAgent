@@ -8,7 +8,9 @@ uses
   uNote in 'uNote.pas',
   uLinkBuffer in 'uLinkBuffer.pas',
   uRepairQueue in 'uRepairQueue.pas',
-  uHttpServer in 'uHttpServer.pas';
+  uHttpServer in 'uHttpServer.pas',
+  FireDAC.UI.Intf,
+  FireDAC.ConsoleUI.Wait;
 
 var
   Database: TDatabase;

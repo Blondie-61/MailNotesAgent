@@ -22,6 +22,7 @@ type
   private
     FServer: TIdHTTPServer;
     FDatabase: TDatabase;
+    FDatabaseLock: TObject;
     FLogLock: TObject;
 
     procedure HandleCommandGet(AContext: TIdContext; ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
@@ -35,6 +36,7 @@ type
     procedure HandleMailRefresh(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleResolve(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleBacklinks(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleSearch(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleLinkBufferSet(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleLinkBufferGet(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleLinkBufferClear(AResponseInfo: TIdHTTPResponseInfo);
@@ -64,6 +66,7 @@ constructor THttpServer.Create(ADatabase: TDatabase);
 begin
   inherited Create;
   FDatabase := ADatabase;
+  FDatabaseLock := TObject.Create;
   FLogLock := TObject.Create;
   FServer := TIdHTTPServer.Create(nil);
   FServer.OnCommandGet := HandleCommandGet;
@@ -76,6 +79,7 @@ begin
   finally
     FServer.Free;
     FLogLock.Free;
+    FDatabaseLock.Free;
   end;
   inherited;
 end;
@@ -98,35 +102,45 @@ end;
 
 procedure THttpServer.HandleCommandGet(AContext: TIdContext; ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 begin
-  if SameText(ARequestInfo.Command, 'POST') then
-  begin
-    if SameText(ARequestInfo.Document, '/note') then
-      HandleSave(ARequestInfo, AResponseInfo)
-    else if SameText(ARequestInfo.Document, '/log') then
-      HandleLog(ARequestInfo, AResponseInfo)
-    else if SameText(ARequestInfo.Document, '/mail/refresh') then
-      HandleMailRefresh(ARequestInfo, AResponseInfo)
-    else if SameText(ARequestInfo.Document, '/linkbuffer') then
-      HandleLinkBufferSet(ARequestInfo, AResponseInfo)
-    else if SameText(ARequestInfo.Document, '/repairqueue') then
-      HandleRepairQueueAdd(ARequestInfo, AResponseInfo)
-    else if SameText(ARequestInfo.Document, '/repairqueue/status') then
-      HandleRepairQueueStatus(ARequestInfo, AResponseInfo)
-    else
-      HandleNotFound(AResponseInfo);
-    Exit;
-  end;
+  // Indy verarbeitet gleichzeitige HTTP-Anfragen in unterschiedlichen Threads.
+  // Sämtliche Handler teilen sich jedoch eine FireDAC-Verbindung. FireDAC-
+  // Verbindungen dürfen nicht parallel von mehreren Threads verwendet werden.
+  // Deshalb wird eine Anfrage vollständig abgearbeitet, bevor die nächste auf
+  // die gemeinsame Datenbank zugreifen kann.
+  TMonitor.Enter(FDatabaseLock);
+  try
+    if SameText(ARequestInfo.Command, 'POST') then
+    begin
+      if SameText(ARequestInfo.Document, '/note') then
+        HandleSave(ARequestInfo, AResponseInfo)
+      else if SameText(ARequestInfo.Document, '/log') then
+        HandleLog(ARequestInfo, AResponseInfo)
+      else if SameText(ARequestInfo.Document, '/mail/refresh') then
+        HandleMailRefresh(ARequestInfo, AResponseInfo)
+      else if SameText(ARequestInfo.Document, '/linkbuffer') then
+        HandleLinkBufferSet(ARequestInfo, AResponseInfo)
+      else if SameText(ARequestInfo.Document, '/repairqueue') then
+        HandleRepairQueueAdd(ARequestInfo, AResponseInfo)
+      else if SameText(ARequestInfo.Document, '/repairqueue/status') then
+        HandleRepairQueueStatus(ARequestInfo, AResponseInfo)
+      else
+        HandleNotFound(AResponseInfo);
+      Exit;
+    end;
 
-  if SameText(ARequestInfo.Command, 'DELETE') then
-  begin
-    if SameText(ARequestInfo.Document, '/linkbuffer') then
-      HandleLinkBufferClear(AResponseInfo)
-    else
-      HandleNotFound(AResponseInfo);
-    Exit;
-  end;
+    if SameText(ARequestInfo.Command, 'DELETE') then
+    begin
+      if SameText(ARequestInfo.Document, '/linkbuffer') then
+        HandleLinkBufferClear(AResponseInfo)
+      else
+        HandleNotFound(AResponseInfo);
+      Exit;
+    end;
 
-  RouteRequest(ARequestInfo, AResponseInfo);
+    RouteRequest(ARequestInfo, AResponseInfo);
+  finally
+    TMonitor.Exit(FDatabaseLock);
+  end;
 end;
 
 procedure THttpServer.RouteRequest(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
@@ -139,6 +153,8 @@ begin
     HandleResolve(ARequestInfo, AResponseInfo)
   else if SameText(ARequestInfo.Document, '/backlinks') then
     HandleBacklinks(ARequestInfo, AResponseInfo)
+  else if SameText(ARequestInfo.Document, '/search') then
+    HandleSearch(ARequestInfo, AResponseInfo)
   else if SameText(ARequestInfo.Document, '/linkbuffer') then
     HandleLinkBufferGet(AResponseInfo)
   else if SameText(ARequestInfo.Document, '/repairqueue/count') then
@@ -151,7 +167,7 @@ end;
 
 procedure THttpServer.HandlePing(AResponseInfo: TIdHTTPResponseInfo);
 begin
-  SendJson(AResponseInfo, '{"status":"ok","version":"0.5.0","schema":2,"identity":"MailNotesID"}');
+  SendJson(AResponseInfo, '{"status":"ok","version":"0.5.0","schema":3,"identity":"MailNotesID"}');
 end;
 
 procedure THttpServer.HandleNotFound(AResponseInfo: TIdHTTPResponseInfo);
@@ -485,6 +501,57 @@ begin
   finally
     Json.Free;
     Backlinks.Free;
+  end;
+end;
+
+procedure THttpServer.HandleSearch(
+  ARequestInfo: TIdHTTPRequestInfo;
+  AResponseInfo: TIdHTTPResponseInfo
+);
+var
+  SearchText: string;
+  MaxResults: Integer;
+  Items: TObjectList<TNote>;
+  Note: TNote;
+  Json: TStringBuilder;
+  IsFirst: Boolean;
+begin
+  SearchText := Trim(ARequestInfo.Params.Values['q']);
+  if SearchText = '' then
+  begin
+    SendJson(AResponseInfo, '{"items":[],"count":0}');
+    Exit;
+  end;
+
+  MaxResults := StrToIntDef(ARequestInfo.Params.Values['limit'], 50);
+  Items := FDatabase.SearchNotes(SearchText, MaxResults);
+  Json := TStringBuilder.Create;
+  try
+    Json.Append('{"items":[');
+    IsFirst := True;
+    for Note in Items do
+    begin
+      if not IsFirst then
+        Json.Append(',');
+      IsFirst := False;
+
+      Json.Append('{');
+      Json.Append('"mailNotesId":"' + JsonEscape(Note.MailNotesID) + '",');
+      Json.Append('"messageId":"' + JsonEscape(Note.MessageID) + '",');
+      Json.Append('"itemId":"' + JsonEscape(Note.ItemID) + '",');
+      Json.Append('"subject":"' + JsonEscape(Note.Subject) + '",');
+      Json.Append('"senderName":"' + JsonEscape(Note.SenderName) + '",');
+      Json.Append('"senderAddress":"' + JsonEscape(Note.SenderAddress) + '",');
+      Json.Append('"mailDate":"' + JsonEscape(Note.MailDate) + '",');
+      Json.Append('"modifiedAt":"' + JsonEscape(Note.ModifiedAt) + '",');
+      Json.Append('"snippet":"' + JsonEscape(Note.SearchSnippet) + '"');
+      Json.Append('}');
+    end;
+    Json.Append('],"count":' + Items.Count.ToString + '}');
+    SendJson(AResponseInfo, Json.ToString);
+  finally
+    Json.Free;
+    Items.Free;
   end;
 end;
 
