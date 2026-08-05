@@ -1,100 +1,115 @@
 ﻿program MailNotesAgent;
 
-{$APPTYPE CONSOLE}
+{$IF Defined(MSWINDOWS)}
+  {$APPTYPE GUI}
+{$ELSE}
+  {$APPTYPE CONSOLE}
+{$ENDIF}
+
+{$R *.res}
+{$R *.dres}
 
 uses
   System.SysUtils,
+  {$IF Defined(MSWINDOWS)}
+  Winapi.Windows,
+  {$ENDIF }
+  uAppPaths in 'uAppPaths.pas',
+  uAppInfo in 'uAppInfo.pas',
+  uVersion in 'uVersion.pas',
+  uGithubRelease in 'uGithubRelease.pas',
+  uUpdater in 'uUpdater.pas',
   uDatabase in 'uDatabase.pas',
   uNote in 'uNote.pas',
   uLinkBuffer in 'uLinkBuffer.pas',
   uRepairQueue in 'uRepairQueue.pas',
   uHttpServer in 'uHttpServer.pas',
-  FireDAC.UI.Intf,
-  FireDAC.ConsoleUI.Wait;
+  uSingleInstance in 'uSingleInstance.pas',
+  uTrayIconResources in 'uTrayIconResources.pas',
+  uStatusLogo in 'uStatusLogo.pas',
+  uStatusDialog in 'uStatusDialog.pas',
+  uTrayIcon in 'uTrayIcon.pas';
 
 var
   Database: TDatabase;
   HttpServer: THttpServer;
-  Note: TNote;
+  TrayIcon: TTrayIcon;
+  SingleInstance: TSingleInstanceGuard;
 
-const
-  DEBUG = True;
-
-procedure Log(const S: string);
+procedure ShowAlreadyRunning;
 begin
-  if DEBUG then
-    Writeln(S);
+{$IF Defined(MSWINDOWS)}
+  MessageBox(
+    0,
+    'MailNotes Agent läuft bereits.',
+    'MailNotes Agent',
+    MB_OK or MB_ICONINFORMATION
+  );
+{$ELSE}
+  Writeln('MailNotes Agent läuft bereits.');
+{$ENDIF}
+end;
+
+procedure ShowStartupError(const ErrorText: string);
+begin
+{$IF Defined(MSWINDOWS)}
+  MessageBox(
+    0,
+    PChar(ErrorText),
+    'MailNotes Agent',
+    MB_OK or MB_ICONERROR
+  );
+{$ELSE}
+  Writeln(ErrorText);
+{$ENDIF}
 end;
 
 begin
-  Database := TDatabase.Create;
+  Database := nil;
+  HttpServer := nil;
+  TrayIcon := nil;
+  SingleInstance := nil;
+
   try
-    Write('Opening database........');
-    Database.Open;
-    Writeln('OK');
-
-    Write('Saving note.............');
-
-    Note := Database.FindByMessageID('<SELFTEST>');
-
-    if not Assigned(Note) then
-    begin
-      Note := TNote.Create;
-      Note.MessageID      := '<SELFTEST>';
-      Note.ConversationID := '<SELFTEST>';
-      Note.Subject        := 'MailNotesAgent Selftest';
-      Note.SenderName     := 'MailNotesAgent';
-      Note.MailDate       := '';
-      Note.ItemID         := '';
-    end;
-
     try
-      Note.Content :=
-        'Selftest ' +
-        FormatDateTime('yyyy-mm-dd hh:nn:ss', Now);
-
-      Note.IsFavorite := False;
-
-      Database.Save(Note);
-
-      Writeln('OK');
-    finally
-      Note.Free;
-    end;
-
-    Write('Finding note............');
-
-    Note := Database.FindByMessageID('<SELFTEST>');
-    try
-      if Assigned(Note) then
+{$IF Defined(MSWINDOWS)}
+      if FindCmdLineSwitch('shutdown', True) then
       begin
-        Writeln('OK');
-        Log('Content: ' + Note.Content);
-      end
-      else
-        Writeln('FAILED');
-    finally
-      Note.Free;
-    end;
+        TTrayIcon.RequestRunningInstanceShutdown;
+        Exit;
+      end;
+{$ENDIF}
 
-    Write('Starting HTTP server...');
+      SingleInstance := TSingleInstanceGuard.Create('MailNotesAgent');
 
-    HttpServer := THttpServer.Create(Database);
-    try
+      if not SingleInstance.Acquired then
+      begin
+        ShowAlreadyRunning;
+        Exit;
+      end;
+
+      Database := TDatabase.Create;
+      Database.Open;
+
+      HttpServer := THttpServer.Create(Database);
       HttpServer.Start;
 
-      Writeln('OK');
-      Writeln('Listening on http://127.0.0.1:48571');
-      Writeln;
-      Writeln('Press ENTER to exit...');
-
-      Readln;
-    finally
-      HttpServer.Free;
+      TrayIcon := TTrayIcon.Create;
+      TrayIcon.SetState(tsOK);
+      TrayIcon.Run;
+    except
+      on E: Exception do
+      begin
+        ShowStartupError(
+          'MailNotes Agent konnte nicht gestartet werden.' +
+          sLineBreak + sLineBreak + E.Message
+        );
+      end;
     end;
-
   finally
+    TrayIcon.Free;
+    HttpServer.Free;
     Database.Free;
+    SingleInstance.Free;
   end;
-
 end.

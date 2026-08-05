@@ -15,7 +15,9 @@ uses
   uDatabase,
   uNote,
   uLinkBuffer,
-  uRepairQueue;
+  uRepairQueue,
+  uAppPaths,
+  uAppInfo;
 
 type
   THttpServer = class
@@ -29,6 +31,7 @@ type
     procedure RouteRequest(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 
     procedure HandlePing(AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleVersion(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleNotFound(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleNote(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleSave(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
@@ -147,6 +150,8 @@ procedure THttpServer.RouteRequest(ARequestInfo: TIdHTTPRequestInfo; AResponseIn
 begin
   if SameText(ARequestInfo.Document, '/ping') then
     HandlePing(AResponseInfo)
+  else if SameText(ARequestInfo.Document, '/version') then
+    HandleVersion(AResponseInfo)
   else if SameText(ARequestInfo.Document, '/note') then
     HandleNote(ARequestInfo, AResponseInfo)
   else if SameText(ARequestInfo.Document, '/resolve') then
@@ -167,7 +172,31 @@ end;
 
 procedure THttpServer.HandlePing(AResponseInfo: TIdHTTPResponseInfo);
 begin
-  SendJson(AResponseInfo, '{"status":"ok","version":"0.5.0","schema":3,"identity":"MailNotesID"}');
+  SendJson(
+    AResponseInfo,
+    '{' +
+    '"status":"ok",' +
+    '"version":"' + JsonEscape(TAppInfo.Version) + '",' +
+    '"schema":3,' +
+    '"identity":"MailNotesID"' +
+    '}'
+  );
+end;
+
+procedure THttpServer.HandleVersion(AResponseInfo: TIdHTTPResponseInfo);
+begin
+  SendJson(
+    AResponseInfo,
+    '{' +
+    '"name":"MailNotesAgent",' +
+    '"version":"' + JsonEscape(TAppInfo.Version) + '",' +
+    '"platform":"' + JsonEscape(TAppInfo.PlatformName) + '",' +
+    '"port":48571,' +
+    '"agentPath":"' + JsonEscape(TAppPaths.AgentFile) + '",' +
+    '"addinPath":"' + JsonEscape(TAppPaths.AddinDirectory) + '",' +
+    '"databasePath":"' + JsonEscape(TAppPaths.DatabaseFile) + '"' +
+    '}'
+  );
 end;
 
 procedure THttpServer.HandleNotFound(AResponseInfo: TIdHTTPResponseInfo);
@@ -299,7 +328,8 @@ begin
   if not ENABLE_LOGGING then
     Exit;
 
-  LogFileName := TPath.Combine(ExtractFilePath(ParamStr(0)), 'MailNotesAgent.log');
+  TAppPaths.EnsureDataDirectory;
+  LogFileName := TAppPaths.LogFile;
   Line :=
     FormatDateTime('yyyy-mm-dd hh:nn:ss.zzz', Now) +
     ' [' + ASource + '] ' + AEvent;

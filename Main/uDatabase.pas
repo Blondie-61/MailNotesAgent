@@ -10,6 +10,13 @@ uses
   System.NetEncoding,
   System.Generics.Collections,
 
+  FireDAC.UI.Intf,
+{$IF Defined(MSWINDOWS)}
+  FireDAC.VCLUI.Wait,
+{$ELSE}
+  FireDAC.ConsoleUI.Wait,
+{$ENDIF}
+  FireDAC.Phys.SQLiteWrapper.Stat,
   FireDAC.DApt,
   FireDAC.Stan.Intf,
   FireDAC.Stan.Def,
@@ -23,7 +30,8 @@ uses
 
   uNote,
   uLinkBuffer,
-  uRepairQueue;
+  uRepairQueue,
+  uAppPaths;
 
 type
   TDatabase = class
@@ -63,7 +71,7 @@ type
   private
     FConnection: TFDConnection;
 
-    function FindDatabasePath: string;
+    function PrepareDatabaseFile: string;
     function GetCurrentUTC: string;
     function CreateMailNotesID: string;
 
@@ -117,13 +125,11 @@ procedure TDatabase.Open;
 var
   DatabaseFile: string;
 begin
-  DatabaseFile := FindDatabasePath;
-
-  if DatabaseFile = '' then
-    raise Exception.Create('MailNotes.sqlite not found.');
+  DatabaseFile := PrepareDatabaseFile;
 
   FConnection.DriverName := 'SQLite';
   FConnection.Params.Database := DatabaseFile;
+  FConnection.Params.Values['BusyTimeout'] := '5000';
 
   if not FConnection.Connected then
     FConnection.Connected := True;
@@ -197,28 +203,25 @@ begin
     FConnection.Close;
 end;
 
-function TDatabase.FindDatabasePath: string;
+function TDatabase.PrepareDatabaseFile: string;
 var
-  BaseDir: string;
-  Candidate: string;
-  I: Integer;
+  BundledDatabaseFile: string;
 begin
-  BaseDir := TPath.GetFullPath(ExtractFilePath(ParamStr(0)));
+  TAppPaths.EnsureDataDirectory;
+  Result := TAppPaths.DatabaseFile;
 
-  for I := 0 to 6 do
-  begin
-    Candidate := TPath.Combine(
-      TPath.Combine(BaseDir, 'Data'),
-      'MailNotes.sqlite'
+  if TFile.Exists(Result) then
+    Exit;
+
+  BundledDatabaseFile := TAppPaths.BundledDatabaseFile;
+
+  if not TFile.Exists(BundledDatabaseFile) then
+    raise Exception.CreateFmt(
+      'Datenbankvorlage nicht gefunden: %s',
+      [BundledDatabaseFile]
     );
 
-    if TFile.Exists(Candidate) then
-      Exit(Candidate);
-
-    BaseDir := TPath.GetFullPath(TPath.Combine(BaseDir, '..'));
-  end;
-
-  Result := '';
+  TFile.Copy(BundledDatabaseFile, Result, False);
 end;
 
 function TDatabase.GetCurrentUTC: string;

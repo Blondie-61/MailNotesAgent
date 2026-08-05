@@ -1,4 +1,4 @@
-MailNotes - finales neues Datenbankschema
+﻿MailNotes - finales neues Datenbankschema
 =========================================
 
 Dieses Schema ist fuer einen vollstaendigen Neustart mit einer leeren
@@ -45,3 +45,20 @@ Wichtig
 -------
 Der derzeitige Delphi-Agent muss vor Verwendung dieser neuen Datenbank
 an das neue Schema angepasst werden.
+
+
+Installationsbetrieb
+--------------------
+Die Datenbank im Installationsordner dient nur als Vorlage fuer den ersten
+Start. Der Agent kopiert sie automatisch in das Benutzerdatenverzeichnis und
+arbeitet danach ausschliesslich mit dieser Kopie.
+
+Windows:
+    %LOCALAPPDATA%\MailNotes\MailNotes.sqlite
+
+macOS:
+    ~/Library/Application Support/MailNotes/MailNotes.sqlite
+
+SQLite wird ueber FireDAC.Phys.SQLiteWrapper.Stat statisch in den Agenten
+eingebunden. Eine separate sqlite3.dll beziehungsweise libsqlite3.dylib ist
+fuer den Agenten daher nicht erforderlich.

@@ -1,4 +1,4 @@
-# Delphi build output
+﻿# Delphi build output
 **/Win32/
 **/Win64/
 **/Android/
@@ -44,3 +44,6 @@ Data/*.sqbpro
 # Windows / macOS
 Thumbs.db
 .DS_Store
+
+# Inno Setup build output
+Setup/Output/
