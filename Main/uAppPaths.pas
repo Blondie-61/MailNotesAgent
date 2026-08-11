@@ -15,6 +15,9 @@ type
     class function DataDirectory: string; static;
     class function DatabaseFile: string; static;
     class function LogFile: string; static;
+    class function TlsDirectory: string; static;
+    class function TlsCertificateFile: string; static;
+    class function TlsPrivateKeyFile: string; static;
     class function BundledDatabaseFile: string; static;
     class procedure EnsureDataDirectory; static;
   end;
@@ -82,6 +85,31 @@ end;
 class function TAppPaths.LogFile: string;
 begin
   Result := TPath.Combine(DataDirectory, 'MailNotesAgent.log');
+end;
+
+
+class function TAppPaths.TlsDirectory: string;
+var
+  BaseDirectory: string;
+begin
+{$IF Defined(MSWINDOWS)}
+  BaseDirectory := GetEnvironmentVariable('PROGRAMDATA');
+  if BaseDirectory = '' then
+    BaseDirectory := 'C:\ProgramData';
+  Result := TPath.Combine(TPath.Combine(BaseDirectory, 'MailNotes'), 'TLS');
+{$ELSE}
+  Result := TPath.Combine(DataDirectory, 'TLS');
+{$ENDIF}
+end;
+
+class function TAppPaths.TlsCertificateFile: string;
+begin
+  Result := TPath.Combine(TlsDirectory, 'localhost-cert.pem');
+end;
+
+class function TAppPaths.TlsPrivateKeyFile: string;
+begin
+  Result := TPath.Combine(TlsDirectory, 'localhost-key.pem');
 end;
 
 class function TAppPaths.BundledDatabaseFile: string;

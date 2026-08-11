@@ -16,9 +16,11 @@
 *.tds
 *.rsm
 *.drc
+*.dres
 *.identcache
 *.stat
 *.local
+Main/MailNotesAgentResource.rc
 
 # Delphi history / backup
 __history/
@@ -41,9 +43,21 @@ MailNotesAgent_LinkBuffer_Source/
 MailNotes_SQL/
 Data/*.sqbpro
 
+
 # Windows / macOS
 Thumbs.db
+desktop.ini
 .DS_Store
+
+# Temporary files
+Resources/Temp/
 
 # Inno Setup build output
 Setup/Output/
+
+# Setup input generated/provided externally
+Setup/Addin/
+Setup/OpenSSL/
+
+# Third-party dependencies
+ThirdParty/

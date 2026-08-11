@@ -16,6 +16,7 @@ uses
   {$ENDIF }
   uAppPaths in 'uAppPaths.pas',
   uAppInfo in 'uAppInfo.pas',
+  uRuntimeConfig in 'uRuntimeConfig.pas',
   uVersion in 'uVersion.pas',
   uGithubRelease in 'uGithubRelease.pas',
   uUpdater in 'uUpdater.pas',

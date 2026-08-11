@@ -1,7 +1,7 @@
-MailNotes Agent – Windows-Setup 0.2
+﻿MailNotes Agent – Windows-Setup 0.2
 ==================================
 
-Produktversion des Agents: 1.0.0.0
+Produktversion des Agents: 1.0.0.1
 Version des Installers:    0.2
 
 Erstellen des Installers
@@ -52,3 +52,18 @@ diesen Schalter nicht kennt, verwendet das Setup als Rückfall taskkill.
 Bei der Deinstallation bleiben die persönlichen Daten standardmäßig erhalten.
 Am Ende wird ausdrücklich gefragt, ob der Ordner unter %LOCALAPPDATA%\MailNotes
 zusätzlich gelöscht werden soll. Die sichere Standardauswahl ist „Nein“.
+
+Build Windows Setup
+
+Voraussetzungen
+---------------
+- Delphi 11/13 Win64 Release Build
+- Inno Setup 6.x
+
+Erzeugen
+--------
+BuildSetup.cmd
+
+Ausgabe
+-------
+Setup\Output\MailNotesAgent-Setup-x.x.x.x.exe

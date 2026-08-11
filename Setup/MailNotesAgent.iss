@@ -1,8 +1,8 @@
-; MailNotes Agent - Windows Setup 0.2
+﻿; MailNotes Agent - Windows Setup 0.2
 ; Erstellt mit Inno Setup 6
 
 #define MyAppName "MailNotes Agent"
-#define MyAppVersion "1.0.0.0"
+#define MyAppVersion "1.0.0.1"
 #define MySetupVersion "0.2"
 #define MyAppPublisher "MailNotes"
 #define MyAppExeName "MailNotesAgent.exe"
@@ -20,7 +20,7 @@ PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=Output
-OutputBaseFilename=MailNotesAgent-Setup-{#MySetupVersion}
+OutputBaseFilename=MailNotesAgent-Setup-{#MyAppVersion}
 SetupIconFile=..\Resources\Windows\MN-OK-ALL.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/ultra64
@@ -28,14 +28,13 @@ SolidCompression=yes
 WizardStyle=modern
 CloseApplications=no
 RestartApplications=no
-AppMutex=Local\MailNotesAgent
 UsePreviousAppDir=yes
 UsePreviousTasks=yes
-VersionInfoVersion=0.2.0.0
+VersionInfoVersion={#MyAppVersion}
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription=Setup für MailNotes Agent
 VersionInfoProductName=MailNotes Agent Setup
-VersionInfoProductVersion=0.2.0.0
+VersionInfoProductVersion={#MyAppVersion}
 
 [Languages]
 Name: "german"; MessagesFile: "compiler:Languages\German.isl"
@@ -47,6 +46,10 @@ Name: "desktopicon"; Description: "Desktop-Symbol erstellen"; GroupDescription: 
 [Files]
 Source: "..\Main\Win64\Release\MailNotesAgent.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\Data\MailNotes.sqlite"; DestDir: "{app}\Data"; Flags: ignoreversion
+Source: "Addin\*"; DestDir: "{autopf}\MailNotes\Addin"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "OpenSSL\*"; DestDir: "{app}"; Flags: ignoreversion
+Source: "CreateLocalCertificate.ps1"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "RemoveLocalCertificate.ps1"; DestDir: "{app}\Tools"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\MailNotes Agent"; Filename: "{app}\{#MyAppExeName}"
@@ -59,6 +62,7 @@ Root: HKLM; Subkey: "Software\MailNotes"; ValueType: string; ValueName: "AgentVe
 Root: HKLM; Subkey: "Software\MailNotes"; ValueType: string; ValueName: "SetupVersion"; ValueData: "{#MySetupVersion}"; Flags: uninsdeletekeyifempty
 
 [Run]
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{tmp}\CreateLocalCertificate.ps1"" -OutputDir ""{commonappdata}\MailNotes\TLS"""; Flags: runhidden waituntilterminated
 Filename: "{app}\{#MyAppExeName}"; Description: "MailNotes Agent starten"; Flags: nowait postinstall skipifsilent
 
 [Code]
@@ -104,19 +108,53 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
-  StopAgent;
   Result := '';
+
+  if not AgentIsRunning then
+    Exit;
+
+  if MsgBox(
+       'Zur Installation muss der MailNotes Agent beendet werden.' + #13#10 + #13#10 +
+       'Möchten Sie den Agent jetzt beenden und mit der Installation fortfahren?',
+       mbConfirmation,
+       MB_OKCANCEL or MB_DEFBUTTON1
+     ) <> IDOK then
+  begin
+    Result :=
+      'Die Installation wurde abgebrochen, weil der MailNotes Agent noch ausgeführt wird.';
+    Exit;
+  end;
+
+  StopAgent;
+
+  if AgentIsRunning then
+    Result :=
+      'Der MailNotes Agent konnte nicht beendet werden.' + #13#10 +
+      'Bitte beenden Sie ihn manuell und starten Sie das Setup anschließend erneut.';
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   DataDirectory: string;
+  ResultCode: Integer;
 begin
   if CurUninstallStep = usUninstall then
     StopAgent;
 
   if CurUninstallStep = usPostUninstall then
   begin
+    Exec(
+      ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""' +
+      ExpandConstant('{app}\Tools\RemoveLocalCertificate.ps1') +
+      '"" -OutputDir ""' +
+      ExpandConstant('{commonappdata}\MailNotes\TLS') + '""',
+      '',
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode
+    );
+
     DataDirectory := ExpandConstant('{localappdata}\MailNotes');
     if DirExists(DataDirectory) and
        (MsgBox(

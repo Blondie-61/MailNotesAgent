@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 setlocal
 cd /d "%~dp0"
 
@@ -21,6 +21,40 @@ if not exist "..\Resources\Windows\MN-OK-ALL.ico" (
   exit /b 3
 )
 
+if not exist "Addin\taskpane.html" (
+  echo FEHLER: Setup\Addin\taskpane.html fehlt.
+  echo Bitte zuerst den Production-Build des Outlook-Add-ins nach Setup\Addin kopieren.
+  pause
+  exit /b 4
+)
+
+if not exist "Addin\manifest.xml" (
+  echo FEHLER: Setup\Addin\manifest.xml fehlt.
+  echo Bitte den kompletten Inhalt von MailNotes\docs nach Setup\Addin kopieren.
+  pause
+  exit /b 7
+)
+
+if not exist "RemoveLocalCertificate.ps1" (
+  echo FEHLER: Setup\RemoveLocalCertificate.ps1 fehlt.
+  pause
+  exit /b 8
+)
+
+if not exist "OpenSSL\libssl-3-x64.dll" (
+  echo FEHLER: Setup\OpenSSL\libssl-3-x64.dll fehlt.
+  echo OpenSSL-3-Win64-DLLs fuer IndySecOpenSSL bereitstellen.
+  pause
+  exit /b 5
+)
+
+if not exist "OpenSSL\libcrypto-3-x64.dll" (
+  echo FEHLER: Setup\OpenSSL\libcrypto-3-x64.dll fehlt.
+  echo OpenSSL-3-Win64-DLLs fuer IndySecOpenSSL bereitstellen.
+  pause
+  exit /b 6
+)
+
 set "ISCC=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
 if not exist "%ISCC%" set "ISCC=%ProgramFiles%\Inno Setup 6\ISCC.exe"
 
@@ -40,5 +74,5 @@ if errorlevel 1 (
 )
 
 echo.
-echo Fertig: %~dp0Output\MailNotesAgent-Setup-0.2.exe
+echo Fertig. Setup liegt in: %~dp0Output\
 pause

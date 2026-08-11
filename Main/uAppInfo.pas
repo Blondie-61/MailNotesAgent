@@ -44,10 +44,53 @@ begin
 end;
 
 class function TAppInfo.Version: string;
+{$IF Defined(MSWINDOWS)}
+var
+  FileName: string;
+  InfoSize: DWORD;
+  Handle: DWORD;
+  Buffer: TBytes;
+  FixedInfo: PVSFixedFileInfo;
+  FixedInfoSize: UINT;
+{$ENDIF}
 begin
-  // Diese vier Komponenten sind die verbindliche Produkt-/Updateversion.
-  // Der Versionsvergleich berücksichtigt alle vier Werte vollständig.
+{$IF Defined(MSWINDOWS)}
+  FileName := ParamStr(0);
+
+  InfoSize := GetFileVersionInfoSize(PChar(FileName), Handle);
+  if InfoSize = 0 then
+    Exit('0.0.0.0');
+
+  SetLength(Buffer, InfoSize);
+
+  if not GetFileVersionInfo(
+    PChar(FileName),
+    Handle,
+    InfoSize,
+    Pointer(Buffer)
+  ) then
+    Exit('0.0.0.0');
+
+  if not VerQueryValue(
+    Pointer(Buffer),
+    '\',
+    Pointer(FixedInfo),
+    FixedInfoSize
+  ) then
+    Exit('0.0.0.0');
+
+  Result := Format(
+    '%d.%d.%d.%d',
+    [
+      HiWord(FixedInfo.dwFileVersionMS),
+      LoWord(FixedInfo.dwFileVersionMS),
+      HiWord(FixedInfo.dwFileVersionLS),
+      LoWord(FixedInfo.dwFileVersionLS)
+    ]
+  );
+{$ELSE}
   Result := '1.0.0.0';
+{$ENDIF}
 end;
 
 class function TAppInfo.PlatformName: string;

@@ -70,6 +70,12 @@
         <Cfg_1>true</Cfg_1>
         <Base>true</Base>
     </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win64' and '$(Cfg_1)'=='true') or '$(Cfg_1_Win64)'!=''">
+        <Cfg_1_Win64>true</Cfg_1_Win64>
+        <CfgParent>Cfg_1</CfgParent>
+        <Cfg_1>true</Cfg_1>
+        <Base>true</Base>
+    </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Release' or '$(Cfg_2)'!=''">
         <Cfg_2>true</Cfg_2>
         <CfgParent>Base</CfgParent>
@@ -174,21 +180,27 @@
         <DCC_UsePackage>vclwinx;fmx;vclie;DbxCommonDriver;bindengine;IndyIPCommon;VCLRESTComponents;FireDACCommonODBC;FireDACCommonDriver;IndyProtocols;vclx;Skia.Package.RTL;IndyIPClient;dbxcds;vcledge;bindcompvclwinx;FmxTeeUI;bindcompfmx;inetdb;FireDACSqliteDriver;DbxClientDriver;Tee;soapmidas;vclactnband;TeeUI;fmxFireDAC;dbexpress;DBXMySQLDriver;VclSmp;inet;fmxase;vcltouch;dbrtl;Skia.Package.FMX;fmxdae;TeeDB;FireDACMSAccDriver;CustomIPTransport;vcldsnap;DBXInterBaseDriver;IndySystem;Skia.Package.VCL;vcldb;VirtualTreesR;vclFireDAC;bindcomp;FireDACCommon;inetstn;IndyCore;RESTBackendComponents;bindcompdbx;rtl;FireDACMySQLDriver;FireDACADSDriver;RESTComponents;DBXSqliteDriver;vcl;IndyIPServer;dsnapxml;dsnapcon;adortl;vclimg;FireDACPgDriver;FireDAC;inetdbxpress;xmlrtl;tethering;bindcompvcl;dsnap;CloudService;fmxobj;bindcompvclsmp;FMXTee;soaprtl;soapserver;FireDACIBDriver;$(DCC_UsePackage)</DCC_UsePackage>
         <DCC_Namespace>Winapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;Bde;$(DCC_Namespace)</DCC_Namespace>
         <BT_BuildType>Debug</BT_BuildType>
-        <VerInfo_Keys>CompanyName=;FileDescription=MailNotes Agent;FileVersion=1.0.0.0;InternalName=MailNotesAgent;LegalCopyright=Copyright © 2026;LegalTrademarks=;OriginalFilename=MailNotesAgent.exe;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=MailNotes Agent;ProductVersion=1.0.0.0;Comments=Lokaler Agent für MailNotes</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=;FileDescription=MailNotes Agent;FileVersion=1.0.0.1;InternalName=MailNotesAgent;LegalCopyright=Copyright © 2026;LegalTrademarks=;OriginalFilename=MailNotesAgent.exe;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=MailNotes Agent;ProductVersion=1.0.0.1;Comments=Lokaler Agent für MailNotes</VerInfo_Keys>
         <VerInfo_Locale>1031</VerInfo_Locale>
         <DCC_ConsoleTarget>true</DCC_ConsoleTarget>
         <UWP_DelphiLogo44>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_44.png</UWP_DelphiLogo44>
         <UWP_DelphiLogo150>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_150.png</UWP_DelphiLogo150>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Win64)'!=''">
+        <DCC_UnitSearchPath>..\ThirdParty\IndySecOpenSSL\src;..\ThirdParty\IndySecOpenSSL\src\opensslHdrs;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_Define>USE_OPENSSL;$(DCC_Define)</DCC_Define>
+        <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <DCC_UsePackage>vclwinx;fmx;vclie;DbxCommonDriver;bindengine;IndyIPCommon;VCLRESTComponents;FireDACCommonODBC;FireDACCommonDriver;IndyProtocols;vclx;IndyIPClient;dbxcds;vcledge;bindcompvclwinx;FmxTeeUI;bindcompfmx;inetdb;FireDACSqliteDriver;DbxClientDriver;Tee;soapmidas;vclactnband;TeeUI;fmxFireDAC;dbexpress;DBXMySQLDriver;VclSmp;inet;fmxase;vcltouch;dbrtl;fmxdae;TeeDB;FireDACMSAccDriver;CustomIPTransport;vcldsnap;DBXInterBaseDriver;IndySystem;Skia.Package.VCL;vcldb;VirtualTreesR;vclFireDAC;bindcomp;FireDACCommon;inetstn;IndyCore;RESTBackendComponents;bindcompdbx;rtl;FireDACMySQLDriver;FireDACADSDriver;RESTComponents;DBXSqliteDriver;vcl;IndyIPServer;dsnapxml;dsnapcon;adortl;vclimg;FireDACPgDriver;FireDAC;inetdbxpress;xmlrtl;tethering;bindcompvcl;dsnap;CloudService;fmxobj;bindcompvclsmp;FMXTee;soaprtl;soapserver;FireDACIBDriver;$(DCC_UsePackage)</DCC_UsePackage>
         <DCC_ConsoleTarget>true</DCC_ConsoleTarget>
         <UWP_DelphiLogo44>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_44.png</UWP_DelphiLogo44>
         <UWP_DelphiLogo150>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_150.png</UWP_DelphiLogo150>
         <DCC_Namespace>Winapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;$(DCC_Namespace)</DCC_Namespace>
         <BT_BuildType>Debug</BT_BuildType>
-        <VerInfo_Keys>CompanyName=;FileDescription=MailNotes Agent;FileVersion=1.0.0.0;InternalName=MailNotesAgent;LegalCopyright=Copyright © 2026;LegalTrademarks=;OriginalFilename=MailNotesAgent.exe;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=MailNotes Agent;ProductVersion=1.0.0.0;Comments=Lokaler Agent für MailNotes</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=;FileDescription=MailNotes Agent;FileVersion=1.0.0.1;InternalName=MailNotesAgent;LegalCopyright=Copyright © 2026;LegalTrademarks=;OriginalFilename=MailNotesAgent.exe;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=MailNotes Agent;ProductVersion=1.0.0.1;Comments=Lokaler Agent für MailNotes</VerInfo_Keys>
         <VerInfo_Locale>1031</VerInfo_Locale>
+        <VerInfo_Build>1</VerInfo_Build>
+        <Manifest_File>(Ohne)</Manifest_File>
+        <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_WinARM64EC)'!=''">
         <DCC_UsePackage>vclwinx;fmx;vclie;DbxCommonDriver;bindengine;IndyIPCommon;VCLRESTComponents;FireDACCommonODBC;FireDACCommonDriver;IndyProtocols;vclx;IndyIPClient;dbxcds;vcledge;bindcompvclwinx;FmxTeeUI;bindcompfmx;inetdb;FireDACSqliteDriver;DbxClientDriver;Tee;soapmidas;vclactnband;TeeUI;fmxFireDAC;dbexpress;DBXMySQLDriver;VclSmp;inet;fmxase;vcltouch;dbrtl;fmxdae;TeeDB;FireDACMSAccDriver;CustomIPTransport;vcldsnap;DBXInterBaseDriver;IndySystem;Skia.Package.VCL;vcldb;vclFireDAC;bindcomp;FireDACCommon;inetstn;IndyCore;RESTBackendComponents;bindcompdbx;rtl;FireDACMySQLDriver;FireDACADSDriver;RESTComponents;DBXSqliteDriver;vcl;IndyIPServer;dsnapxml;dsnapcon;adortl;vclimg;FireDACPgDriver;FireDAC;inetdbxpress;xmlrtl;tethering;bindcompvcl;dsnap;CloudService;fmxobj;bindcompvclsmp;FMXTee;soaprtl;soapserver;FireDACIBDriver;$(DCC_UsePackage)</DCC_UsePackage>
@@ -209,6 +221,12 @@
     <PropertyGroup Condition="'$(Cfg_1_Win32)'!=''">
         <DCC_RemoteDebug>false</DCC_RemoteDebug>
     </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_1_Win64)'!=''">
+        <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
+        <VerInfo_Locale>1031</VerInfo_Locale>
+        <VerInfo_Keys>CompanyName=;FileDescription=MailNotes Agent;FileVersion=1.0.0.2;InternalName=MailNotesAgent;LegalCopyright=Copyright © 2026;LegalTrademarks=;OriginalFilename=MailNotesAgent.exe;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=MailNotes Agent;ProductVersion=1.0.0.1;Comments=Lokaler Agent für MailNotes, RC2</VerInfo_Keys>
+        <VerInfo_Build>2</VerInfo_Build>
+    </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2)'!=''">
         <DCC_LocalDebugSymbols>false</DCC_LocalDebugSymbols>
         <DCC_Define>RELEASE;$(DCC_Define)</DCC_Define>
@@ -218,10 +236,7 @@
     <PropertyGroup Condition="'$(Cfg_2_Win64)'!=''">
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Locale>1031</VerInfo_Locale>
-        <Manifest_File>(Ohne)</Manifest_File>
-        <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
-        <VerInfo_Build>1</VerInfo_Build>
-        <VerInfo_Keys>CompanyName=;FileDescription=MailNotes Agent;FileVersion=1.0.0.1;InternalName=MailNotesAgent;LegalCopyright=Copyright © 2026;LegalTrademarks=;OriginalFilename=MailNotesAgent.exe;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=MailNotes Agent;ProductVersion=1.0.0.0;Comments=Lokaler Agent für MailNotes</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=;FileDescription=MailNotes Agent;FileVersion=1.0.0.0;InternalName=MailNotesAgent;LegalCopyright=Copyright © 2026;LegalTrademarks=;OriginalFilename=MailNotesAgent.exe;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=MailNotes Agent;ProductVersion=1.0.0.1;Comments=Lokaler Agent für MailNotes</VerInfo_Keys>
     </PropertyGroup>
     <ItemGroup>
         <DelphiCompile Include="$(MainSource)">
@@ -229,6 +244,7 @@
         </DelphiCompile>
         <DCCReference Include="uAppPaths.pas"/>
         <DCCReference Include="uAppInfo.pas"/>
+        <DCCReference Include="uRuntimeConfig.pas"/>
         <DCCReference Include="uVersion.pas"/>
         <DCCReference Include="uGithubRelease.pas"/>
         <DCCReference Include="uUpdater.pas"/>

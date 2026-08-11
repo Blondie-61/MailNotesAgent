@@ -4,6 +4,7 @@ interface
 
 uses
   System.SysUtils,
+  System.Classes,
   System.IOUtils,
   System.NetEncoding,
   System.Generics.Collections,
@@ -11,24 +12,37 @@ uses
   IdHTTPServer,
   IdContext,
   IdCustomHTTPServer,
+{$IFDEF MSWINDOWS}
+  IdSecOpenSSL,
+  IdSecOpenSSLOptions,
+{$ENDIF}
 
   uDatabase,
   uNote,
   uLinkBuffer,
   uRepairQueue,
   uAppPaths,
-  uAppInfo;
+  uAppInfo,
+  uRuntimeConfig;
 
 type
   THttpServer = class
   private
     FServer: TIdHTTPServer;
+{$IFDEF MSWINDOWS}
+    FSSLIOHandler: TIdSecServerIOHandlerSSLOpenSSL;
+{$ENDIF}
     FDatabase: TDatabase;
     FDatabaseLock: TObject;
     FLogLock: TObject;
 
     procedure HandleCommandGet(AContext: TIdContext; ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+{$IFDEF MSWINDOWS}
+    procedure HandleQuerySSLPort(APort: Word; var VUseSSL: Boolean);
+{$ENDIF}
     procedure RouteRequest(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+    function TryServeAddinFile(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo): Boolean;
+    function ContentTypeForFile(const AFileName: string): string;
 
     procedure HandlePing(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleVersion(AResponseInfo: TIdHTTPResponseInfo);
@@ -48,6 +62,7 @@ type
     procedure HandleRepairQueueList(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleRepairQueueStatus(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 
+    procedure ApplyCors(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure SendJson(AResponseInfo: TIdHTTPResponseInfo; const AJson: string; AStatusCode: Integer = 200);
     function JsonEscape(const S: string): string;
     procedure LogToFile(const ASource, AEvent, AData: string);
@@ -62,8 +77,6 @@ type
 
 implementation
 
-const
-  ENABLE_LOGGING = False;
 
 constructor THttpServer.Create(ADatabase: TDatabase);
 begin
@@ -73,6 +86,16 @@ begin
   FLogLock := TObject.Create;
   FServer := TIdHTTPServer.Create(nil);
   FServer.OnCommandGet := HandleCommandGet;
+  FServer.OnCommandOther := HandleCommandGet;
+{$IFDEF MSWINDOWS}
+  FSSLIOHandler := nil;
+  if TRuntimeConfig.UseHttps then
+  begin
+    FSSLIOHandler := TIdSecServerIOHandlerSSLOpenSSL.Create(nil);
+    FServer.IOHandler := FSSLIOHandler;
+    FServer.OnQuerySSLPort := HandleQuerySSLPort;
+  end;
+{$ENDIF}
 end;
 
 destructor THttpServer.Destroy;
@@ -81,6 +104,9 @@ begin
     Stop;
   finally
     FServer.Free;
+{$IFDEF MSWINDOWS}
+    FSSLIOHandler.Free;
+{$ENDIF}
     FLogLock.Free;
     FDatabaseLock.Free;
   end;
@@ -92,8 +118,36 @@ begin
   if FServer.Active then
     Exit;
 
+{$IFDEF MSWINDOWS}
+  if TRuntimeConfig.UseHttps then
+  begin
+    if not TFile.Exists(TAppPaths.TlsCertificateFile) then
+      raise Exception.CreateFmt(
+        'TLS-Zertifikat nicht gefunden: %s',
+        [TAppPaths.TlsCertificateFile]
+      );
+
+    if not TFile.Exists(TAppPaths.TlsPrivateKeyFile) then
+      raise Exception.CreateFmt(
+        'TLS-Schlüssel nicht gefunden: %s',
+        [TAppPaths.TlsPrivateKeyFile]
+      );
+
+    FSSLIOHandler.SSLOptions.CertFile := TAppPaths.TlsCertificateFile;
+    FSSLIOHandler.SSLOptions.KeyFile := TAppPaths.TlsPrivateKeyFile;
+    // IndySecOpenSSL verwendet mit OpenSSL 3 standardmäßig TLS 1.2/1.3.
+    // Wir setzen dies explizit, damit ältere Protokolle nie angeboten werden.
+    FSSLIOHandler.SSLOptions.SSLVersions := [sslvTLSv1_2, sslvTLSv1_3];
+  end;
+{$ENDIF}
+
   FServer.Bindings.Clear;
-  FServer.DefaultPort := 48571;
+  with FServer.Bindings.Add do
+  begin
+    IP := TRuntimeConfig.HttpBindAddress;
+    Port := TRuntimeConfig.HttpPort;
+  end;
+  FServer.DefaultPort := TRuntimeConfig.HttpPort;
   FServer.Active := True;
 end;
 
@@ -103,8 +157,29 @@ begin
     FServer.Active := False;
 end;
 
+{$IFDEF MSWINDOWS}
+procedure THttpServer.HandleQuerySSLPort(APort: Word; var VUseSSL: Boolean);
+begin
+  VUseSSL := TRuntimeConfig.UseHttps and (APort = TRuntimeConfig.HttpPort);
+end;
+{$ENDIF}
+
 procedure THttpServer.HandleCommandGet(AContext: TIdContext; ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 begin
+  ApplyCors(ARequestInfo, AResponseInfo);
+
+  if SameText(ARequestInfo.Command, 'OPTIONS') then
+  begin
+    AResponseInfo.ResponseNo := 204;
+    AResponseInfo.ContentText := '';
+    Exit;
+  end;
+
+  if SameText(ARequestInfo.Command, 'GET') and
+     TRuntimeConfig.ServeAddinFiles and
+     TryServeAddinFile(ARequestInfo, AResponseInfo) then
+    Exit;
+
   // Indy verarbeitet gleichzeitige HTTP-Anfragen in unterschiedlichen Threads.
   // Sämtliche Handler teilen sich jedoch eine FireDAC-Verbindung. FireDAC-
   // Verbindungen dürfen nicht parallel von mehreren Threads verwendet werden.
@@ -144,6 +219,86 @@ begin
   finally
     TMonitor.Exit(FDatabaseLock);
   end;
+end;
+
+function THttpServer.ContentTypeForFile(const AFileName: string): string;
+var
+  Ext: string;
+begin
+  Ext := LowerCase(TPath.GetExtension(AFileName));
+
+  if Ext = '.html' then
+    Exit('text/html; charset=utf-8');
+  if Ext = '.js' then
+    Exit('application/javascript; charset=utf-8');
+  if Ext = '.css' then
+    Exit('text/css; charset=utf-8');
+  if Ext = '.png' then
+    Exit('image/png');
+  if Ext = '.ico' then
+    Exit('image/x-icon');
+  if Ext = '.xml' then
+    Exit('application/xml; charset=utf-8');
+
+  Result := 'application/octet-stream';
+end;
+
+function THttpServer.TryServeAddinFile(
+  ARequestInfo: TIdHTTPRequestInfo;
+  AResponseInfo: TIdHTTPResponseInfo
+): Boolean;
+var
+  RequestPath: string;
+  RelativePath: string;
+  BaseDirectory: string;
+  FullName: string;
+  Allowed: Boolean;
+begin
+  Result := False;
+  RequestPath := ARequestInfo.Document;
+
+  if RequestPath = '/' then
+    RequestPath := '/taskpane.html';
+
+  while RequestPath.StartsWith('/') do
+    Delete(RequestPath, 1, 1);
+
+  RelativePath := RequestPath.Replace('/', PathDelim);
+
+  Allowed :=
+    SameText(RelativePath, 'taskpane.html') or
+    SameText(RelativePath, 'taskpane.js') or
+    SameText(RelativePath, 'commands.html') or
+    SameText(RelativePath, 'commands.js') or
+    SameText(RelativePath, 'polyfill.js') or
+    SameText(RelativePath, 'manifest.xml') or
+    SameText(TPath.GetExtension(RelativePath), '.css') or
+    RelativePath.StartsWith('assets' + PathDelim, True);
+
+  if not Allowed then
+    Exit(False);
+
+  BaseDirectory := IncludeTrailingPathDelimiter(
+    TPath.GetFullPath(TAppPaths.AddinDirectory)
+  );
+  FullName := TPath.GetFullPath(TPath.Combine(BaseDirectory, RelativePath));
+
+  // Kein Directory Traversal außerhalb des Add-in-Verzeichnisses.
+  if not FullName.StartsWith(BaseDirectory, True) then
+    Exit(False);
+
+  if not TFile.Exists(FullName) then
+    Exit(False);
+
+  AResponseInfo.ResponseNo := 200;
+  AResponseInfo.ContentType := ContentTypeForFile(FullName);
+  AResponseInfo.CacheControl := 'no-cache';
+  AResponseInfo.ContentStream := TFileStream.Create(
+    FullName,
+    fmOpenRead or fmShareDenyNone
+  );
+  AResponseInfo.FreeContentStream := True;
+  Result := True;
 end;
 
 procedure THttpServer.RouteRequest(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
@@ -191,7 +346,7 @@ begin
     '"name":"MailNotesAgent",' +
     '"version":"' + JsonEscape(TAppInfo.Version) + '",' +
     '"platform":"' + JsonEscape(TAppInfo.PlatformName) + '",' +
-    '"port":48571,' +
+    '"port":' + TRuntimeConfig.HttpPort.ToString + ',' +
     '"agentPath":"' + JsonEscape(TAppPaths.AgentFile) + '",' +
     '"addinPath":"' + JsonEscape(TAppPaths.AddinDirectory) + '",' +
     '"databasePath":"' + JsonEscape(TAppPaths.DatabaseFile) + '"' +
@@ -325,7 +480,7 @@ var
   Line: string;
   LogFileName: string;
 begin
-  if not ENABLE_LOGGING then
+  if not TRuntimeConfig.EnableLogging then
     Exit;
 
   TAppPaths.EnsureDataDirectory;
@@ -767,6 +922,21 @@ begin
   SendJson(AResponseInfo, '{"updated":true}');
 end;
 
+
+procedure THttpServer.ApplyCors(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+var
+  Origin: string;
+begin
+  Origin := ARequestInfo.RawHeaders.Values['Origin'];
+  if not TRuntimeConfig.IsAllowedCorsOrigin(Origin) then
+    Exit;
+
+  AResponseInfo.CustomHeaders.Values['Access-Control-Allow-Origin'] := Origin;
+  AResponseInfo.CustomHeaders.Values['Vary'] := 'Origin';
+  AResponseInfo.CustomHeaders.Values['Access-Control-Allow-Methods'] := 'GET, POST, DELETE, OPTIONS';
+  AResponseInfo.CustomHeaders.Values['Access-Control-Allow-Headers'] := 'Content-Type';
+  AResponseInfo.CustomHeaders.Values['Access-Control-Max-Age'] := '600';
+end;
 
 procedure THttpServer.SendJson(AResponseInfo: TIdHTTPResponseInfo; const AJson: string; AStatusCode: Integer);
 begin

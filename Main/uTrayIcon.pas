@@ -5,14 +5,22 @@ interface
 {$IF Defined(MSWINDOWS)}
 uses
   Winapi.Windows,
-  Winapi.Messages;
+  Winapi.Messages,
+  uUpdater;
+
+function SetMenuDefaultItem(
+  hMenu: HMENU;
+  uItem: UINT;
+  fByPos: UINT
+): BOOL; stdcall; external user32 name 'SetMenuDefaultItem';
 {$ENDIF}
 
 type
   TTrayState = (
     tsOK,
     tsWarning,
-    tsError
+    tsError,
+    tsUpdateAvailable
   );
 
   TTrayIcon = class
@@ -24,6 +32,9 @@ type
     FIconHandle: HICON;
     FIconAdded: Boolean;
     FShutdownMessage: UINT;
+    FUpdateAvailable: Boolean;
+    FLatestVersion: string;
+    FUpdateCheckRunning: Boolean;
 
     procedure WindowMessage(var Message: TMessage);
     procedure CreateTrayMenu;
@@ -35,8 +46,13 @@ type
     procedure ExecuteMenuCommand(const CommandID: NativeUInt);
     procedure ShowStatusDialog;
     procedure CheckForUpdates;
+    procedure StartAutomaticUpdateCheck;
+    procedure HandleAutomaticUpdateResult(const ResultPointer: Pointer);
+    procedure ApplyUpdateCheckResult(const CheckResult: TUpdateCheckResult);
+    procedure UpdateUpdateMenu;
     procedure OpenDataDirectory;
     procedure OpenLogFile;
+    function DisplayState: TTrayState;
     function IconResourceID: Integer;
     function StatusText: string;
 {$ENDIF}
@@ -61,8 +77,7 @@ uses
   , Winapi.ShellAPI,
   System.Classes,
   uTrayIconResources,
-  uStatusDialog,
-  uUpdater
+  uStatusDialog
 {$ENDIF}
   ;
 
@@ -70,6 +85,11 @@ uses
 
 const
   WM_MAILNOTES_TRAY = WM_APP + 117;
+  WM_MAILNOTES_UPDATE_RESULT = WM_APP + 118;
+
+  TIMER_AUTO_UPDATE = 2001;
+  INITIAL_UPDATE_DELAY_MS = 15000;
+  DAILY_UPDATE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
   MENU_STATUS = 1000;
   MENU_SHOW_STATUS = 1001;
@@ -78,20 +98,33 @@ const
   MENU_OPEN_LOG = 1004;
   MENU_EXIT = 1005;
 
+type
+  PAutomaticUpdateResult = ^TUpdateCheckResult;
+
 constructor TTrayIcon.Create;
 begin
   inherited Create;
 
   FState := tsOK;
+  FUpdateAvailable := False;
+  FLatestVersion := '';
+  FUpdateCheckRunning := False;
   FShutdownMessage := RegisterWindowMessage('MailNotesAgent.Shutdown');
   FWindowHandle := AllocateHWnd(WindowMessage);
   CreateTrayMenu;
   AddTrayIcon;
+
+  // Die erste Prüfung erfolgt bewusst leicht verzögert, damit der Agent
+  // vollständig gestartet ist. Danach wird einmal täglich erneut geprüft.
+  SetTimer(FWindowHandle, TIMER_AUTO_UPDATE, INITIAL_UPDATE_DELAY_MS, nil);
 end;
 
 
 destructor TTrayIcon.Destroy;
 begin
+  if FWindowHandle <> 0 then
+    KillTimer(FWindowHandle, TIMER_AUTO_UPDATE);
+
   RemoveTrayIcon;
   DestroyTrayMenu;
 
@@ -151,6 +184,28 @@ begin
   end;
 
   case Message.Msg of
+    WM_TIMER:
+      if Message.WParam = TIMER_AUTO_UPDATE then
+      begin
+        KillTimer(FWindowHandle, TIMER_AUTO_UPDATE);
+        StartAutomaticUpdateCheck;
+        SetTimer(
+          FWindowHandle,
+          TIMER_AUTO_UPDATE,
+          DAILY_UPDATE_INTERVAL_MS,
+          nil
+        );
+        Message.Result := 0;
+        Exit;
+      end;
+
+    WM_MAILNOTES_UPDATE_RESULT:
+      begin
+        HandleAutomaticUpdateResult(Pointer(Message.WParam));
+        Message.Result := 0;
+        Exit;
+      end;
+
     WM_MAILNOTES_TRAY:
       case Message.LParam of
         WM_LBUTTONDBLCLK,
@@ -285,6 +340,8 @@ begin
     MENU_STATUS,
     PChar(StatusText)
   );
+
+  UpdateUpdateMenu;
 end;
 
 
@@ -351,6 +408,9 @@ begin
   finally
     SetCursor(LoadCursor(0, IDC_ARROW));
   end;
+
+  if CheckResult.Success then
+    ApplyUpdateCheckResult(CheckResult);
 
   if not CheckResult.Success then
   begin
@@ -428,6 +488,139 @@ begin
 end;
 
 
+
+procedure TTrayIcon.StartAutomaticUpdateCheck;
+var
+  TargetWindow: HWND;
+  UpdateThread: TThread;
+begin
+  if FUpdateCheckRunning then
+    Exit;
+
+  FUpdateCheckRunning := True;
+  TargetWindow := FWindowHandle;
+
+  UpdateThread := TThread.CreateAnonymousThread(
+    procedure
+    var
+      ResultPointer: PAutomaticUpdateResult;
+    begin
+      New(ResultPointer);
+      ResultPointer^ := TMailNotesUpdater.CheckLatest;
+
+      if not PostMessage(
+        TargetWindow,
+        WM_MAILNOTES_UPDATE_RESULT,
+        WPARAM(ResultPointer),
+        0
+      ) then
+        Dispose(ResultPointer);
+    end
+  );
+  UpdateThread.FreeOnTerminate := True;
+  UpdateThread.Start;
+end;
+
+
+procedure TTrayIcon.HandleAutomaticUpdateResult(
+  const ResultPointer: Pointer
+);
+var
+  CheckResult: TUpdateCheckResult;
+begin
+  FUpdateCheckRunning := False;
+
+  if ResultPointer = nil then
+    Exit;
+
+  try
+    CheckResult := PAutomaticUpdateResult(ResultPointer)^;
+  finally
+    Dispose(PAutomaticUpdateResult(ResultPointer));
+  end;
+
+  // Netzwerkfehler bleiben bei der automatischen Prüfung bewusst still.
+  // Die manuelle Updatesuche zeigt weiterhin eine verständliche Meldung.
+  if CheckResult.Success then
+    ApplyUpdateCheckResult(CheckResult);
+end;
+
+
+procedure TTrayIcon.ApplyUpdateCheckResult(const CheckResult: TUpdateCheckResult);
+begin
+  FUpdateAvailable := CheckResult.UpdateAvailable;
+
+  if FUpdateAvailable then
+    FLatestVersion := CheckResult.LatestVersion
+  else
+    FLatestVersion := '';
+
+  UpdateTrayIcon;
+end;
+
+procedure TTrayIcon.UpdateUpdateMenu;
+var
+  MenuText: string;
+begin
+  if FPopupMenu = 0 then
+    Exit;
+
+  if FUpdateAvailable then
+  begin
+    if FLatestVersion <> '' then
+      MenuText := 'Update verfügbar (' + FLatestVersion + ')...'
+    else
+      MenuText := 'Update verfügbar...';
+
+    ModifyMenu(
+      FPopupMenu,
+      MENU_CHECK_UPDATES,
+      MF_BYCOMMAND or MF_STRING,
+      MENU_CHECK_UPDATES,
+      PChar(MenuText)
+    );
+
+    SetMenuDefaultItem(
+      FPopupMenu,
+      MENU_CHECK_UPDATES,
+      0
+    );
+  end
+  else
+  begin
+    ModifyMenu(
+      FPopupMenu,
+      MENU_CHECK_UPDATES,
+      MF_BYCOMMAND or MF_STRING,
+      MENU_CHECK_UPDATES,
+      PChar('Nach Updates suchen...')
+    );
+
+    SetMenuDefaultItem(
+      FPopupMenu,
+      UINT(-1),
+      0
+    );
+  end;
+end;
+
+function TTrayIcon.DisplayState: TTrayState;
+begin
+  // Fehler und Warnungen haben Vorrang vor einem verfügbaren Update.
+  case FState of
+    tsError:
+      Exit(tsError);
+    tsWarning:
+      Exit(tsWarning);
+  end;
+
+  if FUpdateAvailable then
+    Result := tsUpdateAvailable
+  else
+    Result := tsOK;
+end;
+
+
 procedure TTrayIcon.OpenDataDirectory;
 begin
   TAppPaths.EnsureDataDirectory;
@@ -470,11 +663,19 @@ end;
 function TTrayIcon.IconResourceID: Integer;
 const
   // False = farbige Statussymbole, True = Schwarzweiß-Symbole.
+  // Das Update-Symbol bleibt in beiden Fällen blau, damit es eindeutig ist.
   USE_MONOCHROME_ICONS = False;
+var
+  CurrentState: TTrayState;
 begin
+  CurrentState := DisplayState;
+
+  if CurrentState = tsUpdateAvailable then
+    Exit(6);
+
   if USE_MONOCHROME_ICONS then
   begin
-    case FState of
+    case CurrentState of
       tsWarning: Result := 4;
       tsError: Result := 5;
     else
@@ -483,7 +684,7 @@ begin
   end
   else
   begin
-    case FState of
+    case CurrentState of
       tsWarning: Result := 1;
       tsError: Result := 2;
     else
@@ -492,15 +693,20 @@ begin
   end;
 end;
 
-
 function TTrayIcon.StatusText: string;
 begin
-  case FState of
+  case DisplayState of
     tsWarning:
       Result := 'Warnung';
 
     tsError:
       Result := 'Fehler';
+
+    tsUpdateAvailable:
+      if FLatestVersion <> '' then
+        Result := 'Update ' + FLatestVersion + ' verfügbar'
+      else
+        Result := 'Update verfügbar';
   else
     Result := 'Bereit';
   end;
