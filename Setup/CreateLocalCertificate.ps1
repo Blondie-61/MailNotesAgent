@@ -11,20 +11,6 @@ $thumbprintFile = Join-Path $OutputDir 'localhost-thumbprint.txt'
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
-# Vorhandene, vollständige MailNotes-TLS-Installation weiterverwenden.
-if ((Test-Path $certFile) -and
-    (Test-Path $keyFile) -and
-    (Test-Path $thumbprintFile)) {
-
-  $existingThumbprint = (Get-Content $thumbprintFile -Raw).Trim()
-
-  if ($existingThumbprint -and
-      (Test-Path "Cert:\LocalMachine\Root\$existingThumbprint")) {
-    Write-Host 'MailNotes TLS certificate already exists and is trusted.'
-    exit 0
-  }
-}
-
 function Write-PemFile {
   param(
     [string]$Path,
@@ -34,6 +20,7 @@ function Write-PemFile {
 
   $base64 = [Convert]::ToBase64String($Bytes)
   $lines = [regex]::Matches($base64, '.{1,64}') | ForEach-Object { $_.Value }
+
   $text =
     "-----BEGIN $Label-----`r`n" +
     ($lines -join "`r`n") +
@@ -45,6 +32,112 @@ function Write-PemFile {
     [Text.Encoding]::ASCII
   )
 }
+
+function Remove-MailNotesCertificateByThumbprint {
+  param(
+    [string]$Thumbprint
+  )
+
+  if (-not $Thumbprint) {
+    return
+  }
+
+  foreach ($store in @('Root', 'My')) {
+    $path = "Cert:\LocalMachine\$store\$Thumbprint"
+
+    if (Test-Path $path) {
+      Remove-Item $path -Force
+    }
+  }
+}
+
+function Test-MailNotesTlsPair {
+  param(
+    [string]$CertificateFile,
+    [string]$PrivateKeyFile,
+    [string]$Thumbprint
+  )
+
+  if (-not (Test-Path $CertificateFile)) {
+    return $false
+  }
+
+  if (-not (Test-Path $PrivateKeyFile)) {
+    return $false
+  }
+
+  if (-not $Thumbprint) {
+    return $false
+  }
+
+  if (-not (Test-Path "Cert:\LocalMachine\Root\$Thumbprint")) {
+    return $false
+  }
+
+  try {
+    $certPem = [IO.File]::ReadAllText($CertificateFile, [Text.Encoding]::ASCII)
+    $keyPem  = [IO.File]::ReadAllText($PrivateKeyFile, [Text.Encoding]::ASCII)
+
+    if (-not $certPem.StartsWith('-----BEGIN CERTIFICATE-----')) {
+      return $false
+    }
+
+    if (-not $keyPem.StartsWith('-----BEGIN PRIVATE KEY-----')) {
+      return $false
+    }
+
+    $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromPem(
+      $certPem,
+      $keyPem
+    )
+
+    try {
+      if (-not $cert.HasPrivateKey) {
+        return $false
+      }
+
+      if (-not [string]::Equals(
+        $cert.Thumbprint,
+        $Thumbprint,
+        [System.StringComparison]::OrdinalIgnoreCase
+      )) {
+        return $false
+      }
+
+      return $true
+    }
+    finally {
+      $cert.Dispose()
+    }
+  }
+  catch {
+    return $false
+  }
+}
+
+$existingThumbprint = ''
+
+if (Test-Path $thumbprintFile) {
+  $existingThumbprint = (Get-Content $thumbprintFile -Raw).Trim()
+}
+
+if (
+  (Test-MailNotesTlsPair `
+    -CertificateFile $certFile `
+    -PrivateKeyFile $keyFile `
+    -Thumbprint $existingThumbprint)
+) {
+  Write-Host 'MailNotes TLS certificate already exists, matches the private key and is trusted.'
+  exit 0
+}
+
+Write-Host 'Existing MailNotes TLS material is incomplete or invalid. Recreating certificate and key.'
+
+Remove-MailNotesCertificateByThumbprint -Thumbprint $existingThumbprint
+
+Remove-Item $certFile       -Force -ErrorAction SilentlyContinue
+Remove-Item $keyFile        -Force -ErrorAction SilentlyContinue
+Remove-Item $thumbprintFile -Force -ErrorAction SilentlyContinue
 
 $cert = New-SelfSignedCertificate `
   -DnsName 'localhost' `
@@ -107,8 +200,6 @@ finally {
   [Text.Encoding]::ASCII
 )
 
-# Der Agent läuft im Benutzerkontext. Normale Benutzer benötigen Leserechte
-# auf den exportierten privaten Schlüssel.
 & icacls.exe $keyFile `
   /inheritance:r `
   /grant:r `

@@ -1,7 +1,7 @@
 ﻿MailNotes Agent – Windows-Setup 0.2
 ==================================
 
-Produktversion des Agents: 1.0.0.1
+Produktversion des Agents: 1.0.0.2
 Version des Installers:    0.2
 
 Erstellen des Installers
@@ -15,7 +15,7 @@ Erstellen des Installers
 
 Das fertige Setup wird erzeugt unter:
 
-    Setup\Output\MailNotesAgent-Setup-0.2.exe
+    Setup\Output\MailNotesAgent-Setup-1.0.0.2.exe
 
 Installation
 ------------
@@ -67,3 +67,16 @@ BuildSetup.cmd
 Ausgabe
 -------
 Setup\Output\MailNotesAgent-Setup-x.x.x.x.exe
+
+Outlook-Add-in nach der Installation
+------------------------------------
+Auf der Abschlussseite kann optional
+"Outlook-Add-in jetzt einrichten (manifest.xml)"
+ausgewählt werden.
+
+Dann öffnet das Setup automatisch:
+- https://aka.ms/olksideload im Standardbrowser
+- den Explorer mit der installierten manifest.xml markiert
+
+Die eigentliche Auswahl "Aus Datei hinzufügen" erfolgt weiterhin im
+Microsoft-365-/Outlook-Konto.

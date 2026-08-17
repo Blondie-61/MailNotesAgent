@@ -240,7 +240,7 @@ function StatusInformationText: string;
 begin
   Result :=
     'MailNotes Agent' + sLineBreak +
-    'Version: ' + TAppInfo.Version + sLineBreak +
+    'Version: ' + TAppInfo.DisplayVersion + sLineBreak +
     'Plattform: ' + TAppInfo.PlatformName + ' (x64)' + sLineBreak +
     'HTTP-Server: Port 48571 – OK' + sLineBreak +
     'SQLite: ' + DatabaseStatusText + sLineBreak +
@@ -385,11 +385,17 @@ begin
   AddStatic(WindowHandle, 'MailNotes Agent', 112, 22, 390, 38, SS_LEFT, FontTitle);
   AddStatic(WindowHandle, 'Statusinformationen und Pfade', 113, 62, 390, 24, SS_LEFT, FontSubtitle);
 
-  AddStatic(WindowHandle, TAppInfo.Version, 630, 22, 145, 38, SS_RIGHT, FontVersion);
-  AddStatic(WindowHandle, TAppInfo.PlatformName + ' (x64)', 600, 62, 175, 24, SS_RIGHT, FontSubtitle);
+  AddStatic(WindowHandle, TAppInfo.DisplayVersion, 630, 22, 145, 38, SS_RIGHT, FontVersion);
+  if TAppInfo.BuildType <> '' then
+  begin
+    AddStatic(WindowHandle, TAppInfo.BuildType, 600, 58, 175, 22, SS_RIGHT, FontSubtitle);
+    AddStatic(WindowHandle, TAppInfo.PlatformName + ' (x64)', 600, 80, 175, 24, SS_RIGHT, FontSubtitle);
+  end
+  else
+    AddStatic(WindowHandle, TAppInfo.PlatformName + ' (x64)', 600, 62, 175, 24, SS_RIGHT, FontSubtitle);
 
   AddStatic(WindowHandle, 'Version', 56, 132, 130, 22);
-  AddStatic(WindowHandle, TAppInfo.Version, 205, 132, 160, 22);
+  AddStatic(WindowHandle, TAppInfo.DisplayVersion, 205, 132, 160, 22);
 
   AddStatic(WindowHandle, 'Plattform', 56, 171, 130, 22);
   AddStatic(WindowHandle, TAppInfo.PlatformName + ' (x64)', 205, 171, 160, 22);

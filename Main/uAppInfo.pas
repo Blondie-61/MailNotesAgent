@@ -11,6 +11,8 @@ type
     class function NormalizeVersion(const AVersion: string): string; static;
   public
     class function Version: string; static;
+    class function DisplayVersion: string; static;
+    class function BuildType: string; static;
     class function PlatformName: string; static;
     class function CompareVersions(const AVersion1, AVersion2: string): Integer; static;
   end;
@@ -89,7 +91,33 @@ begin
     ]
   );
 {$ELSE}
-  Result := '1.0.0.0';
+  Result := '1.0.0.2';
+{$ENDIF}
+end;
+
+class function TAppInfo.DisplayVersion: string;
+var
+  Parts: TArray<string>;
+  TechnicalVersion: string;
+begin
+  TechnicalVersion := Version;
+  Parts := TechnicalVersion.Split(['.']);
+
+  if Length(Parts) >= 4 then
+    Result := Format(
+      '%s.%s.%s (%s)',
+      [Parts[0], Parts[1], Parts[2], Parts[3]]
+    )
+  else
+    Result := TechnicalVersion;
+end;
+
+class function TAppInfo.BuildType: string;
+begin
+{$IFDEF DEBUG}
+  Result := 'Debug-Build';
+{$ELSE}
+  Result := '';
 {$ENDIF}
 end;
 

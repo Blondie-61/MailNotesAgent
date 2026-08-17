@@ -4,7 +4,7 @@
         <ProjectVersion>20.4</ProjectVersion>
         <FrameworkType>None</FrameworkType>
         <Base>True</Base>
-        <Config Condition="'$(Config)'==''">Release</Config>
+        <Config Condition="'$(Config)'==''">Debug</Config>
         <Platform Condition="'$(Platform)'==''">Win64</Platform>
         <TargetedPlatforms>131075</TargetedPlatforms>
         <AppType>Application</AppType>
@@ -180,7 +180,7 @@
         <DCC_UsePackage>vclwinx;fmx;vclie;DbxCommonDriver;bindengine;IndyIPCommon;VCLRESTComponents;FireDACCommonODBC;FireDACCommonDriver;IndyProtocols;vclx;Skia.Package.RTL;IndyIPClient;dbxcds;vcledge;bindcompvclwinx;FmxTeeUI;bindcompfmx;inetdb;FireDACSqliteDriver;DbxClientDriver;Tee;soapmidas;vclactnband;TeeUI;fmxFireDAC;dbexpress;DBXMySQLDriver;VclSmp;inet;fmxase;vcltouch;dbrtl;Skia.Package.FMX;fmxdae;TeeDB;FireDACMSAccDriver;CustomIPTransport;vcldsnap;DBXInterBaseDriver;IndySystem;Skia.Package.VCL;vcldb;VirtualTreesR;vclFireDAC;bindcomp;FireDACCommon;inetstn;IndyCore;RESTBackendComponents;bindcompdbx;rtl;FireDACMySQLDriver;FireDACADSDriver;RESTComponents;DBXSqliteDriver;vcl;IndyIPServer;dsnapxml;dsnapcon;adortl;vclimg;FireDACPgDriver;FireDAC;inetdbxpress;xmlrtl;tethering;bindcompvcl;dsnap;CloudService;fmxobj;bindcompvclsmp;FMXTee;soaprtl;soapserver;FireDACIBDriver;$(DCC_UsePackage)</DCC_UsePackage>
         <DCC_Namespace>Winapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;Bde;$(DCC_Namespace)</DCC_Namespace>
         <BT_BuildType>Debug</BT_BuildType>
-        <VerInfo_Keys>CompanyName=;FileDescription=MailNotes Agent;FileVersion=1.0.0.1;InternalName=MailNotesAgent;LegalCopyright=Copyright © 2026;LegalTrademarks=;OriginalFilename=MailNotesAgent.exe;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=MailNotes Agent;ProductVersion=1.0.0.1;Comments=Lokaler Agent für MailNotes</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=;FileDescription=MailNotes Agent;FileVersion=1.0.0.2;InternalName=MailNotesAgent;LegalCopyright=Copyright © 2026;LegalTrademarks=;OriginalFilename=MailNotesAgent.exe;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=MailNotes Agent;ProductVersion=1.0.0.2;Comments=Lokaler Agent für MailNotes</VerInfo_Keys>
         <VerInfo_Locale>1031</VerInfo_Locale>
         <DCC_ConsoleTarget>true</DCC_ConsoleTarget>
         <UWP_DelphiLogo44>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_44.png</UWP_DelphiLogo44>
@@ -196,7 +196,7 @@
         <UWP_DelphiLogo150>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_150.png</UWP_DelphiLogo150>
         <DCC_Namespace>Winapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;$(DCC_Namespace)</DCC_Namespace>
         <BT_BuildType>Debug</BT_BuildType>
-        <VerInfo_Keys>CompanyName=;FileDescription=MailNotes Agent;FileVersion=1.0.0.1;InternalName=MailNotesAgent;LegalCopyright=Copyright © 2026;LegalTrademarks=;OriginalFilename=MailNotesAgent.exe;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=MailNotes Agent;ProductVersion=1.0.0.1;Comments=Lokaler Agent für MailNotes</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=;FileDescription=MailNotes Agent;FileVersion=1.0.0.2;InternalName=MailNotesAgent;LegalCopyright=Copyright © 2026;LegalTrademarks=;OriginalFilename=MailNotesAgent.exe;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=MailNotes Agent;ProductVersion=1.0.0.2;Comments=Lokaler Agent für MailNotes</VerInfo_Keys>
         <VerInfo_Locale>1031</VerInfo_Locale>
         <VerInfo_Build>1</VerInfo_Build>
         <Manifest_File>(Ohne)</Manifest_File>
@@ -224,8 +224,9 @@
     <PropertyGroup Condition="'$(Cfg_1_Win64)'!=''">
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Locale>1031</VerInfo_Locale>
-        <VerInfo_Keys>CompanyName=;FileDescription=MailNotes Agent;FileVersion=1.0.0.2;InternalName=MailNotesAgent;LegalCopyright=Copyright © 2026;LegalTrademarks=;OriginalFilename=MailNotesAgent.exe;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=MailNotes Agent;ProductVersion=1.0.0.1;Comments=Lokaler Agent für MailNotes, RC2</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=;FileDescription=MailNotes Agent;FileVersion=1.0.0.2;InternalName=MailNotesAgent;LegalCopyright=Copyright © 2026;LegalTrademarks=;OriginalFilename=MailNotesAgent.exe;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=MailNotes Agent;ProductVersion=1.0.0.2;Comments=Lokaler Agent für MailNotes, RC2</VerInfo_Keys>
         <VerInfo_Build>2</VerInfo_Build>
+        <VerInfo_Debug>true</VerInfo_Debug>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2)'!=''">
         <DCC_LocalDebugSymbols>false</DCC_LocalDebugSymbols>
@@ -236,7 +237,9 @@
     <PropertyGroup Condition="'$(Cfg_2_Win64)'!=''">
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Locale>1031</VerInfo_Locale>
-        <VerInfo_Keys>CompanyName=;FileDescription=MailNotes Agent;FileVersion=1.0.0.0;InternalName=MailNotesAgent;LegalCopyright=Copyright © 2026;LegalTrademarks=;OriginalFilename=MailNotesAgent.exe;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=MailNotes Agent;ProductVersion=1.0.0.1;Comments=Lokaler Agent für MailNotes</VerInfo_Keys>
+        <VerInfo_Build>2</VerInfo_Build>
+        <Icon_MainIcon>..\Resources\Windows\MN-OK-ALL.ico</Icon_MainIcon>
+        <VerInfo_Debug>true</VerInfo_Debug>
     </PropertyGroup>
     <ItemGroup>
         <DelphiCompile Include="$(MainSource)">

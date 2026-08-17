@@ -2,7 +2,7 @@
 ; Erstellt mit Inno Setup 6
 
 #define MyAppName "MailNotes Agent"
-#define MyAppVersion "1.0.0.1"
+#define MyAppVersion "1.0.0.2"
 #define MySetupVersion "0.2"
 #define MyAppPublisher "MailNotes"
 #define MyAppExeName "MailNotesAgent.exe"
@@ -42,6 +42,7 @@ Name: "german"; MessagesFile: "compiler:Languages\German.isl"
 [Tasks]
 Name: "autostart"; Description: "MailNotes Agent automatisch mit Windows starten"; GroupDescription: "Zusätzliche Aufgaben:"; Flags: checkedonce
 Name: "desktopicon"; Description: "Desktop-Symbol erstellen"; GroupDescription: "Zusätzliche Aufgaben:"; Flags: unchecked
+Name: "addinsetup"; Description: "Outlook-Add-in jetzt einrichten (manifest.xml)"; GroupDescription: "Zusätzliche Aufgaben:"; Flags: checkedonce
 
 [Files]
 Source: "..\Main\Win64\Release\MailNotesAgent.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -50,10 +51,11 @@ Source: "Addin\*"; DestDir: "{autopf}\MailNotes\Addin"; Flags: ignoreversion rec
 Source: "OpenSSL\*"; DestDir: "{app}"; Flags: ignoreversion
 Source: "CreateLocalCertificate.ps1"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "RemoveLocalCertificate.ps1"; DestDir: "{app}\Tools"; Flags: ignoreversion
+Source: "..\Resources\Windows\MN-OK-ALL.ico"; DestDir: "{app}"; DestName: "MailNotes.ico"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\MailNotes Agent"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\MailNotes Agent"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{group}\MailNotes Agent"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\MailNotes.ico"
+Name: "{autodesktop}\MailNotes Agent"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\MailNotes.ico"; Tasks: desktopicon
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "MailNotesAgent"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue; Tasks: autostart
@@ -66,6 +68,81 @@ Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile
 Filename: "{app}\{#MyAppExeName}"; Description: "MailNotes Agent starten"; Flags: nowait postinstall skipifsilent
 
 [Code]
+var
+  AddinHelpLabel: TNewStaticText;
+  AddinSetupOpened: Boolean;
+
+
+procedure InitializeWizard;
+begin
+  AddinSetupOpened := False;
+
+  AddinHelpLabel := TNewStaticText.Create(WizardForm);
+  AddinHelpLabel.Parent := WizardForm.FinishedPage;
+  AddinHelpLabel.Left := ScaleX(0);
+  AddinHelpLabel.Top := ScaleY(64);
+  AddinHelpLabel.Width := ScaleX(430);
+  AddinHelpLabel.Height := ScaleY(230);
+  AddinHelpLabel.AutoSize := False;
+  AddinHelpLabel.WordWrap := True;
+  AddinHelpLabel.Font.Size := 9;
+  AddinHelpLabel.Visible := False;
+end;
+
+const
+  HWND_TOPMOST = -1;
+  SWP_NOSIZE = $0001;
+  SWP_NOMOVE = $0002;
+  SWP_SHOWWINDOW = $0040;
+
+function SetWindowPos(
+  hWnd: HWND;
+  hWndInsertAfter: HWND;
+  X, Y, cx, cy: Integer;
+  uFlags: UINT
+): Boolean;
+external 'SetWindowPos@user32.dll stdcall';
+
+function SetForegroundWindow(hWnd: HWND): Boolean;
+external 'SetForegroundWindow@user32.dll stdcall';
+
+procedure OpenAddinSetup;
+var
+  ErrorCode: Integer;
+begin
+  if not WizardIsTaskSelected('addinsetup') then
+    Exit;
+
+  if not ShellExecAsOriginalUser(
+    '',
+    'https://aka.ms/olksideload',
+    '',
+    '',
+    SW_SHOWNORMAL,
+    ewNoWait,
+    ErrorCode
+  ) then
+    MsgBox(
+      'Die Outlook-Seite konnte nicht im Standard-Browser geöffnet werden.' + #13#10 +
+      'Bitte öffnen Sie aka.ms/olksideload manuell.',
+      mbError,
+      MB_OK
+    );
+
+  { Browser/Explorer kurz Zeit zum Öffnen geben und danach
+    das bereits sichtbare Setup-Fenster nach vorn holen. }
+  Sleep(1200);
+
+  SetWindowPos(
+    WizardForm.Handle,
+    HWND_TOPMOST,
+    0, 0, 0, 0,
+    SWP_NOMOVE or SWP_NOSIZE or SWP_SHOWWINDOW
+  );
+  SetForegroundWindow(WizardForm.Handle);
+end;
+
+
 const
   AgentExeName = 'MailNotesAgent.exe';
 
@@ -74,9 +151,15 @@ var
   ResultCode: Integer;
 begin
   Result := False;
-  if Exec(ExpandConstant('{cmd}'),
-    '/C tasklist /FI "IMAGENAME eq ' + AgentExeName + '" | find /I "' + AgentExeName + '" >nul',
-    '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  if Exec(
+       ExpandConstant('{cmd}'),
+       '/C tasklist /FI "IMAGENAME eq ' + AgentExeName + '" | find /I "' +
+       AgentExeName + '" >nul',
+       '',
+       SW_HIDE,
+       ewWaitUntilTerminated,
+       ResultCode
+     ) then
     Result := ResultCode = 0;
 end;
 
@@ -133,13 +216,69 @@ begin
       'Bitte beenden Sie ihn manuell und starten Sie das Setup anschließend erneut.';
 end;
 
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if CurPageID <> wpFinished then
+    Exit;
+
+  if WizardIsTaskSelected('addinsetup') then
+  begin
+    WizardForm.FinishedHeadingLabel.Caption :=
+      'MailNotes Outlook-Add-In einrichten';
+
+    WizardForm.FinishedLabel.Caption :=
+      'MailNotes Agent wurde erfolgreich installiert.';
+
+    AddinHelpLabel.Caption :=
+      'Die Outlook-Seite wird automatisch im Standard-Browser geöffnet.' + #13#10 + #13#10 +
+      '1. Outlook vollständig beenden.' + #13#10 +
+      '2. Gehen Sie im Browser zu "Meine Add-Ins".' + #13#10 +
+      '3. Wählen Sie "Benutzerdefiniertes Add-In hinzufügen".' + #13#10 +
+      '4. Wählen Sie die Datei "manifest.xml" unter' + #13#10 +
+      '   "' + ExpandConstant('{autopf}\MailNotes\Addin') + '"' + #13#10 +
+      '   aus und klicken Sie auf "Installieren".' + #13#10 + #13#10 +
+      '5. Starten Sie Outlook und markieren Sie eine beliebige E-Mail.' + #13#10 +
+      '6. Öffnen Sie im Menüband "Add-Ins" > "Weitere Apps" und wählen Sie "MailNotes".' + #13#10 +
+      '7. Heften Sie MailNotes mit dem Pin an, wenn das Fenster geöffnet bleiben soll (optional).';
+
+    AddinHelpLabel.Visible := True;
+
+    if not AddinSetupOpened then
+    begin
+      AddinSetupOpened := True;
+      OpenAddinSetup;
+    end;
+  end
+  else
+  begin
+    AddinHelpLabel.Visible := False;
+  end;
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   DataDirectory: string;
   ResultCode: Integer;
 begin
   if CurUninstallStep = usUninstall then
+  begin
     StopAgent;
+
+    DataDirectory := ExpandConstant('{localappdata}\MailNotes');
+
+    if MsgBox(
+         'Sollen auch die persönlichen MailNotes-Daten gelöscht werden?' + #13#10 + #13#10 +
+         'Dazu gehören insbesondere alle Notizen und die lokale Datenbank.' + #13#10 +
+         'Die sichere Standardauswahl ist „Nein“.',
+         mbConfirmation,
+         MB_YESNO or MB_DEFBUTTON2
+       ) = IDYES then
+    begin
+      if DirExists(DataDirectory) then
+        DelTree(DataDirectory, True, True, True);
+    end;
+  end;
 
   if CurUninstallStep = usPostUninstall then
   begin
@@ -154,16 +293,5 @@ begin
       ewWaitUntilTerminated,
       ResultCode
     );
-
-    DataDirectory := ExpandConstant('{localappdata}\MailNotes');
-    if DirExists(DataDirectory) and
-       (MsgBox(
-         'Sollen auch die persönlichen MailNotes-Daten gelöscht werden?' + #13#10 + #13#10 +
-         'Dazu gehören insbesondere alle Notizen und die lokale Datenbank.' + #13#10 +
-         'Die sichere Standardauswahl ist „Nein“.',
-         mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES) then
-    begin
-      DelTree(DataDirectory, True, True, True);
-    end;
   end;
 end;
