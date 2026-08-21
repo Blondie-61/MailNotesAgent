@@ -35,6 +35,9 @@ type
     FUpdateAvailable: Boolean;
     FLatestVersion: string;
     FUpdateCheckRunning: Boolean;
+    FDownloadedInstallerFile: string;
+    FDownloadedVersion: string;
+    FUpdatePromptedVersion: string;
 
     procedure WindowMessage(var Message: TMessage);
     procedure CreateTrayMenu;
@@ -99,7 +102,12 @@ const
   MENU_EXIT = 1005;
 
 type
-  PAutomaticUpdateResult = ^TUpdateCheckResult;
+  TAutomaticUpdateResult = record
+    CheckResult: TUpdateCheckResult;
+    InstallerFile: string;
+    DownloadError: string;
+  end;
+  PAutomaticUpdateResult = ^TAutomaticUpdateResult;
 
 constructor TTrayIcon.Create;
 begin
@@ -109,6 +117,9 @@ begin
   FUpdateAvailable := False;
   FLatestVersion := '';
   FUpdateCheckRunning := False;
+  FDownloadedInstallerFile := '';
+  FDownloadedVersion := '';
+  FUpdatePromptedVersion := '';
   FShutdownMessage := RegisterWindowMessage('MailNotesAgent.Shutdown');
   FWindowHandle := AllocateHWnd(WindowMessage);
   CreateTrayMenu;
@@ -402,6 +413,7 @@ var
   InstallerFile: string;
   Answer: Integer;
 begin
+  InstallerFile := '';
   SetCursor(LoadCursor(0, IDC_WAIT));
   try
     CheckResult := TMailNotesUpdater.CheckLatest;
@@ -437,28 +449,38 @@ begin
     Exit;
   end;
 
-  Answer := MessageBoxW(
-    FWindowHandle,
-    PWideChar('Eine neue Version ist verfügbar.' + sLineBreak + sLineBreak +
-      'Installiert: ' + CheckResult.CurrentVersion + sLineBreak +
-      'Verfügbar: ' + CheckResult.LatestVersion + sLineBreak + sLineBreak +
-      'Soll das Setup jetzt heruntergeladen werden?'),
-    'MailNotes Agent',
-    MB_YESNO or MB_ICONINFORMATION or MB_DEFBUTTON1
-  );
+  if (FDownloadedVersion = CheckResult.LatestVersion) and
+     (FDownloadedInstallerFile <> '') and
+     FileExists(FDownloadedInstallerFile) then
+  begin
+    InstallerFile := FDownloadedInstallerFile;
+  end
+  else
+  begin
+    Answer := MessageBoxW(
+      FWindowHandle,
+      PWideChar('Eine neue Version ist verfügbar.' + sLineBreak + sLineBreak +
+        'Installiert: ' + CheckResult.CurrentVersion + sLineBreak +
+        'Verfügbar: ' + CheckResult.LatestVersion + sLineBreak + sLineBreak +
+        'Soll das Setup jetzt heruntergeladen werden?'),
+      'MailNotes Agent',
+      MB_YESNO or MB_ICONINFORMATION or MB_DEFBUTTON1
+    );
 
-  if Answer <> IDYES then
-    Exit;
+    if Answer <> IDYES then
+      Exit;
+  end;
 
   try
-    InstallerFile := TMailNotesUpdater.DownloadInstaller(
-      CheckResult.DownloadUrl,
-      CheckResult.AssetName
-    );
+    if InstallerFile = '' then
+      InstallerFile := TMailNotesUpdater.DownloadInstaller(
+        CheckResult.DownloadUrl,
+        CheckResult.AssetName
+      );
 
     Answer := MessageBoxW(
       FWindowHandle,
-      PWideChar('Das Setup wurde heruntergeladen:' + sLineBreak +
+      PWideChar('Das Setup ist bereit:' + sLineBreak +
         InstallerFile + sLineBreak + sLineBreak +
         'Soll es jetzt gestartet werden?'),
       'MailNotes Agent',
@@ -506,7 +528,26 @@ begin
       ResultPointer: PAutomaticUpdateResult;
     begin
       New(ResultPointer);
-      ResultPointer^ := TMailNotesUpdater.CheckLatest;
+      ResultPointer^.CheckResult := TMailNotesUpdater.CheckLatest;
+      ResultPointer^.InstallerFile := '';
+      ResultPointer^.DownloadError := '';
+
+      // Bei der automatischen Prüfung wird ein gefundenes Update bereits
+      // im Hintergrund heruntergeladen. Installiert wird erst nach
+      // ausdrücklicher Bestätigung durch den Benutzer.
+      if ResultPointer^.CheckResult.Success and
+         ResultPointer^.CheckResult.UpdateAvailable then
+      begin
+        try
+          ResultPointer^.InstallerFile := TMailNotesUpdater.DownloadInstaller(
+            ResultPointer^.CheckResult.DownloadUrl,
+            ResultPointer^.CheckResult.AssetName
+          );
+        except
+          on E: Exception do
+            ResultPointer^.DownloadError := E.Message;
+        end;
+      end;
 
       if not PostMessage(
         TargetWindow,
@@ -526,7 +567,9 @@ procedure TTrayIcon.HandleAutomaticUpdateResult(
   const ResultPointer: Pointer
 );
 var
+  AutomaticResult: TAutomaticUpdateResult;
   CheckResult: TUpdateCheckResult;
+  Answer: Integer;
 begin
   FUpdateCheckRunning := False;
 
@@ -534,15 +577,70 @@ begin
     Exit;
 
   try
-    CheckResult := PAutomaticUpdateResult(ResultPointer)^;
+    AutomaticResult := PAutomaticUpdateResult(ResultPointer)^;
   finally
     Dispose(PAutomaticUpdateResult(ResultPointer));
   end;
 
-  // Netzwerkfehler bleiben bei der automatischen Prüfung bewusst still.
-  // Die manuelle Updatesuche zeigt weiterhin eine verständliche Meldung.
-  if CheckResult.Success then
-    ApplyUpdateCheckResult(CheckResult);
+  CheckResult := AutomaticResult.CheckResult;
+
+  // Netzwerk- und Downloadfehler bleiben bei der automatischen Prüfung
+  // bewusst still. Die manuelle Updatesuche zeigt weiterhin eine
+  // verständliche Meldung und kann jederzeit erneut angestoßen werden.
+  if not CheckResult.Success then
+    Exit;
+
+  ApplyUpdateCheckResult(CheckResult);
+
+  if not CheckResult.UpdateAvailable then
+    Exit;
+
+  if AutomaticResult.InstallerFile <> '' then
+  begin
+    FDownloadedInstallerFile := AutomaticResult.InstallerFile;
+    FDownloadedVersion := CheckResult.LatestVersion;
+  end;
+
+  // Falls der Download fehlgeschlagen ist, bleibt lediglich der bisherige
+  // Status "Update verfügbar" bestehen. Es erscheint kein störender Dialog.
+  if (FDownloadedInstallerFile = '') or
+     (FDownloadedVersion <> CheckResult.LatestVersion) or
+     not FileExists(FDownloadedInstallerFile) then
+    Exit;
+
+  // Pro Agent-Lauf und Version nur einmal automatisch nachfragen.
+  // Lehnt der Benutzer ab, bleibt das Update über das Tray-Menü erreichbar.
+  if SameText(FUpdatePromptedVersion, CheckResult.LatestVersion) then
+    Exit;
+
+  FUpdatePromptedVersion := CheckResult.LatestVersion;
+
+  Answer := MessageBoxW(
+    FWindowHandle,
+    PWideChar('MailNotes Agent ' + CheckResult.LatestVersion +
+      ' wurde heruntergeladen.' + sLineBreak + sLineBreak +
+      'Soll das Update jetzt installiert werden?'),
+    'MailNotes Agent',
+    MB_YESNO or MB_ICONINFORMATION or MB_DEFBUTTON1
+  );
+
+  if Answer = IDYES then
+  begin
+    if ShellExecuteW(
+      FWindowHandle,
+      'open',
+      PWideChar(FDownloadedInstallerFile),
+      nil,
+      PWideChar(ExtractFilePath(FDownloadedInstallerFile)),
+      SW_SHOWNORMAL
+    ) <= 32 then
+      MessageBoxW(
+        FWindowHandle,
+        'Das heruntergeladene Setup konnte nicht gestartet werden.',
+        'MailNotes Agent',
+        MB_OK or MB_ICONERROR
+      );
+  end;
 end;
 
 

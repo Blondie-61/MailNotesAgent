@@ -46,6 +46,7 @@ type
 
     procedure HandlePing(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleVersion(AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleStats(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleNotFound(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleNote(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleSave(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
@@ -54,6 +55,12 @@ type
     procedure HandleResolve(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleBacklinks(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleSearch(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleFavorites(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleTags(AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleNoteTags(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandlePersons(AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleNotePersons(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleFavoriteSet(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleLinkBufferSet(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleLinkBufferGet(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleLinkBufferClear(AResponseInfo: TIdHTTPResponseInfo);
@@ -195,6 +202,8 @@ begin
         HandleLog(ARequestInfo, AResponseInfo)
       else if SameText(ARequestInfo.Document, '/mail/refresh') then
         HandleMailRefresh(ARequestInfo, AResponseInfo)
+      else if SameText(ARequestInfo.Document, '/favorite') then
+        HandleFavoriteSet(ARequestInfo, AResponseInfo)
       else if SameText(ARequestInfo.Document, '/linkbuffer') then
         HandleLinkBufferSet(ARequestInfo, AResponseInfo)
       else if SameText(ARequestInfo.Document, '/repairqueue') then
@@ -307,6 +316,8 @@ begin
     HandlePing(AResponseInfo)
   else if SameText(ARequestInfo.Document, '/version') then
     HandleVersion(AResponseInfo)
+  else if SameText(ARequestInfo.Document, '/stats') then
+    HandleStats(AResponseInfo)
   else if SameText(ARequestInfo.Document, '/note') then
     HandleNote(ARequestInfo, AResponseInfo)
   else if SameText(ARequestInfo.Document, '/resolve') then
@@ -315,6 +326,16 @@ begin
     HandleBacklinks(ARequestInfo, AResponseInfo)
   else if SameText(ARequestInfo.Document, '/search') then
     HandleSearch(ARequestInfo, AResponseInfo)
+  else if SameText(ARequestInfo.Document, '/favorites') then
+    HandleFavorites(ARequestInfo, AResponseInfo)
+  else if SameText(ARequestInfo.Document, '/tags') then
+    HandleTags(AResponseInfo)
+  else if SameText(ARequestInfo.Document, '/note/tags') then
+    HandleNoteTags(ARequestInfo, AResponseInfo)
+  else if SameText(ARequestInfo.Document, '/persons') then
+    HandlePersons(AResponseInfo)
+  else if SameText(ARequestInfo.Document, '/note/persons') then
+    HandleNotePersons(ARequestInfo, AResponseInfo)
   else if SameText(ARequestInfo.Document, '/linkbuffer') then
     HandleLinkBufferGet(AResponseInfo)
   else if SameText(ARequestInfo.Document, '/repairqueue/count') then
@@ -332,7 +353,7 @@ begin
     '{' +
     '"status":"ok",' +
     '"version":"' + JsonEscape(TAppInfo.Version) + '",' +
-    '"schema":3,' +
+    '"schema":5,' +
     '"identity":"MailNotesID"' +
     '}'
   );
@@ -350,6 +371,29 @@ begin
     '"agentPath":"' + JsonEscape(TAppPaths.AgentFile) + '",' +
     '"addinPath":"' + JsonEscape(TAppPaths.AddinDirectory) + '",' +
     '"databasePath":"' + JsonEscape(TAppPaths.DatabaseFile) + '"' +
+    '}'
+  );
+end;
+
+procedure THttpServer.HandleStats(AResponseInfo: TIdHTTPResponseInfo);
+var
+  NoteCount: Integer;
+  MailLinkCount: Integer;
+  FavoriteCount: Integer;
+  TagCount: Integer;
+  PersonCount: Integer;
+begin
+  FDatabase.GetStatistics(NoteCount, MailLinkCount, FavoriteCount, TagCount, PersonCount);
+
+  SendJson(
+    AResponseInfo,
+    '{' +
+    '"notes":' + NoteCount.ToString + ',' +
+    '"mailLinks":' + MailLinkCount.ToString + ',' +
+    '"favorites":' + FavoriteCount.ToString + ',' +
+    '"tags":' + TagCount.ToString + ',' +
+    '"persons":' + PersonCount.ToString + ',' +
+    '"version":"' + JsonEscape(TAppInfo.Version) + '"' +
     '}'
   );
 end;
@@ -409,7 +453,8 @@ begin
       '"content":"' + JsonEscape(Note.Content) + '",' +
       '"links":"' + JsonEscape(Note.Links) + '",' +
       '"createdAt":"' + JsonEscape(Note.CreatedAt) + '",' +
-      '"modifiedAt":"' + JsonEscape(Note.ModifiedAt) + '"' +
+      '"modifiedAt":"' + JsonEscape(Note.ModifiedAt) + '",' +
+      '"isFavorite":' + LowerCase(BoolToStr(Note.IsFavorite, True)) +
       '}'
     );
   finally
@@ -696,20 +741,46 @@ procedure THttpServer.HandleSearch(
 var
   SearchText: string;
   MaxResults: Integer;
+  FavoriteOnly: Boolean;
+  TagNormalizedNames: TArray<string>;
+  TagParam: string;
+  PersonNormalizedNames: TArray<string>;
+  PersonParam: string;
   Items: TObjectList<TNote>;
   Note: TNote;
   Json: TStringBuilder;
   IsFirst: Boolean;
 begin
   SearchText := Trim(ARequestInfo.Params.Values['q']);
-  if SearchText = '' then
+  TagParam := Trim(ARequestInfo.Params.Values['tags']);
+  if TagParam = '' then
+    TagParam := Trim(ARequestInfo.Params.Values['tag']);
+  if TagParam = '' then
+    SetLength(TagNormalizedNames, 0)
+  else
+    TagNormalizedNames := TagParam.Split(['|']);
+  PersonParam := Trim(ARequestInfo.Params.Values['persons']);
+  if PersonParam = '' then
+    PersonParam := Trim(ARequestInfo.Params.Values['person']);
+  if PersonParam = '' then
+    SetLength(PersonNormalizedNames, 0)
+  else
+    PersonNormalizedNames := PersonParam.Split(['|']);
+  if (SearchText = '') and (Length(TagNormalizedNames) = 0) and
+     (Length(PersonNormalizedNames) = 0) and
+     not (SameText(ARequestInfo.Params.Values['favorite'], 'true') or
+          (ARequestInfo.Params.Values['favorite'] = '1')) then
   begin
     SendJson(AResponseInfo, '{"items":[],"count":0}');
     Exit;
   end;
 
   MaxResults := StrToIntDef(ARequestInfo.Params.Values['limit'], 50);
-  Items := FDatabase.SearchNotes(SearchText, MaxResults);
+  FavoriteOnly := SameText(ARequestInfo.Params.Values['favorite'], 'true') or
+                  (ARequestInfo.Params.Values['favorite'] = '1');
+  Items := FDatabase.SearchNotes(
+    SearchText, MaxResults, FavoriteOnly, TagNormalizedNames, PersonNormalizedNames
+  );
   Json := TStringBuilder.Create;
   try
     Json.Append('{"items":[');
@@ -738,6 +809,228 @@ begin
     Json.Free;
     Items.Free;
   end;
+end;
+
+
+procedure THttpServer.HandleFavorites(
+  ARequestInfo: TIdHTTPRequestInfo;
+  AResponseInfo: TIdHTTPResponseInfo
+);
+var
+  MaxResults: Integer;
+  Items: TObjectList<TNote>;
+  Note: TNote;
+  Json: TStringBuilder;
+  IsFirst: Boolean;
+begin
+  MaxResults := StrToIntDef(ARequestInfo.Params.Values['limit'], 100);
+  Items := FDatabase.GetFavorites(MaxResults);
+  Json := TStringBuilder.Create;
+  try
+    Json.Append('{"items":[');
+    IsFirst := True;
+    for Note in Items do
+    begin
+      if not IsFirst then
+        Json.Append(',');
+      IsFirst := False;
+
+      Json.Append('{');
+      Json.Append('"mailNotesId":"' + JsonEscape(Note.MailNotesID) + '",');
+      Json.Append('"messageId":"' + JsonEscape(Note.MessageID) + '",');
+      Json.Append('"itemId":"' + JsonEscape(Note.ItemID) + '",');
+      Json.Append('"subject":"' + JsonEscape(Note.Subject) + '",');
+      Json.Append('"senderName":"' + JsonEscape(Note.SenderName) + '",');
+      Json.Append('"senderAddress":"' + JsonEscape(Note.SenderAddress) + '",');
+      Json.Append('"mailDate":"' + JsonEscape(Note.MailDate) + '",');
+      Json.Append('"modifiedAt":"' + JsonEscape(Note.ModifiedAt) + '",');
+      Json.Append('"snippet":"' + JsonEscape(Note.SearchSnippet) + '"');
+      Json.Append('}');
+    end;
+    Json.Append('],"count":' + Items.Count.ToString + '}');
+    SendJson(AResponseInfo, Json.ToString);
+  finally
+    Json.Free;
+    Items.Free;
+  end;
+end;
+
+procedure THttpServer.HandleTags(AResponseInfo: TIdHTTPResponseInfo);
+var
+  Tags: TObjectList<TTagInfo>;
+  Tag: TTagInfo;
+  Json: TStringBuilder;
+  IsFirst: Boolean;
+begin
+  Tags := FDatabase.GetTags;
+  Json := TStringBuilder.Create;
+  try
+    Json.Append('{"items":[');
+    IsFirst := True;
+    for Tag in Tags do
+    begin
+      if not IsFirst then
+        Json.Append(',');
+      IsFirst := False;
+      Json.Append('{');
+      Json.Append('"name":"' + JsonEscape(Tag.Name) + '",');
+      Json.Append('"normalizedName":"' + JsonEscape(Tag.NormalizedName) + '",');
+      Json.Append('"count":' + Tag.UsageCount.ToString);
+      Json.Append('}');
+    end;
+    Json.Append('],"count":' + Tags.Count.ToString + '}');
+    SendJson(AResponseInfo, Json.ToString);
+  finally
+    Json.Free;
+    Tags.Free;
+  end;
+end;
+
+procedure THttpServer.HandleNoteTags(
+  ARequestInfo: TIdHTTPRequestInfo;
+  AResponseInfo: TIdHTTPResponseInfo
+);
+var
+  MailNotesID: string;
+  Tags: TObjectList<TTagInfo>;
+  Tag: TTagInfo;
+  Json: TStringBuilder;
+  IsFirst: Boolean;
+begin
+  MailNotesID := Trim(ARequestInfo.Params.Values['mailNotesId']);
+  if MailNotesID = '' then
+  begin
+    SendJson(AResponseInfo, '{"items":[],"count":0}');
+    Exit;
+  end;
+
+  Tags := FDatabase.GetNoteTags(MailNotesID);
+  Json := TStringBuilder.Create;
+  try
+    Json.Append('{"items":[');
+    IsFirst := True;
+    for Tag in Tags do
+    begin
+      if not IsFirst then
+        Json.Append(',');
+      IsFirst := False;
+      Json.Append('{');
+      Json.Append('"name":"' + JsonEscape(Tag.Name) + '",');
+      Json.Append('"normalizedName":"' + JsonEscape(Tag.NormalizedName) + '"');
+      Json.Append('}');
+    end;
+    Json.Append('],"count":' + Tags.Count.ToString + '}');
+    SendJson(AResponseInfo, Json.ToString);
+  finally
+    Json.Free;
+    Tags.Free;
+  end;
+end;
+
+procedure THttpServer.HandlePersons(AResponseInfo: TIdHTTPResponseInfo);
+var
+  Persons: TObjectList<TPersonInfo>;
+  Person: TPersonInfo;
+  Json: TStringBuilder;
+  IsFirst: Boolean;
+begin
+  Persons := FDatabase.GetPersons;
+  Json := TStringBuilder.Create;
+  try
+    Json.Append('{"items":[');
+    IsFirst := True;
+    for Person in Persons do
+    begin
+      if not IsFirst then
+        Json.Append(',');
+      IsFirst := False;
+      Json.Append('{');
+      Json.Append('"name":"' + JsonEscape(Person.Name) + '",');
+      Json.Append('"normalizedName":"' + JsonEscape(Person.NormalizedName) + '",');
+      Json.Append('"count":' + Person.UsageCount.ToString);
+      Json.Append('}');
+    end;
+    Json.Append('],"count":' + Persons.Count.ToString + '}');
+    SendJson(AResponseInfo, Json.ToString);
+  finally
+    Json.Free;
+    Persons.Free;
+  end;
+end;
+
+procedure THttpServer.HandleNotePersons(
+  ARequestInfo: TIdHTTPRequestInfo;
+  AResponseInfo: TIdHTTPResponseInfo
+);
+var
+  MailNotesID: string;
+  Persons: TObjectList<TPersonInfo>;
+  Person: TPersonInfo;
+  Json: TStringBuilder;
+  IsFirst: Boolean;
+begin
+  MailNotesID := Trim(ARequestInfo.Params.Values['mailNotesId']);
+  if MailNotesID = '' then
+  begin
+    SendJson(AResponseInfo, '{"items":[],"count":0}');
+    Exit;
+  end;
+
+  Persons := FDatabase.GetNotePersons(MailNotesID);
+  Json := TStringBuilder.Create;
+  try
+    Json.Append('{"items":[');
+    IsFirst := True;
+    for Person in Persons do
+    begin
+      if not IsFirst then
+        Json.Append(',');
+      IsFirst := False;
+      Json.Append('{');
+      Json.Append('"name":"' + JsonEscape(Person.Name) + '",');
+      Json.Append('"normalizedName":"' + JsonEscape(Person.NormalizedName) + '"');
+      Json.Append('}');
+    end;
+    Json.Append('],"count":' + Persons.Count.ToString + '}');
+    SendJson(AResponseInfo, Json.ToString);
+  finally
+    Json.Free;
+    Persons.Free;
+  end;
+end;
+
+procedure THttpServer.HandleFavoriteSet(
+  ARequestInfo: TIdHTTPRequestInfo;
+  AResponseInfo: TIdHTTPResponseInfo
+);
+var
+  MailNotesID: string;
+  MessageID: string;
+  IsFavorite: Boolean;
+begin
+  MailNotesID := ARequestInfo.Params.Values['mailNotesId'];
+  MessageID := ARequestInfo.Params.Values['messageId'];
+
+  if (MailNotesID = '') and (MessageID = '') then
+  begin
+    SendJson(AResponseInfo, '{"error":"missing_mail_identity"}', 400);
+    Exit;
+  end;
+
+  IsFavorite := SameText(ARequestInfo.Params.Values['favorite'], 'true') or
+                (ARequestInfo.Params.Values['favorite'] = '1');
+
+  if not FDatabase.SetFavorite(MailNotesID, MessageID, IsFavorite) then
+  begin
+    SendJson(AResponseInfo, '{"error":"note_not_found"}', 404);
+    Exit;
+  end;
+
+  SendJson(
+    AResponseInfo,
+    '{"saved":true,"isFavorite":' +
+    LowerCase(BoolToStr(IsFavorite, True)) + '}'
+  );
 end;
 
 procedure THttpServer.HandleLinkBufferSet(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);

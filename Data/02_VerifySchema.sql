@@ -1,4 +1,4 @@
--- ==========================================================
+﻿-- ==========================================================
 -- MailNotes - Pruefung des finalen neuen Schemas
 -- ==========================================================
 
@@ -31,12 +31,18 @@ ORDER BY tbl_name, name;
 -- Tabellenstrukturen
 PRAGMA table_info(Mail);
 PRAGMA table_info(Note);
+PRAGMA table_info(Tag);
+PRAGMA table_info(NoteTag);
+PRAGMA table_info(Person);
+PRAGMA table_info(NotePerson);
 PRAGMA table_info(MailLink);
 PRAGMA table_info(AppState);
 PRAGMA table_info(SHLRepairQueue);
 
 -- Fremdschluesseldefinitionen
 PRAGMA foreign_key_list(Note);
+PRAGMA foreign_key_list(NoteTag);
+PRAGMA foreign_key_list(NotePerson);
 PRAGMA foreign_key_list(MailLink);
 
 -- Initialer Anwendungszustand

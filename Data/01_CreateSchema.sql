@@ -1,4 +1,4 @@
--- MailNotes - finales neues Datenbankschema ab Version 0
+﻿-- MailNotes - finales neues Datenbankschema ab Version 0
 -- SQLite
 -- WICHTIG: Dieses Skript ist fuer eine LEERE Datenbank gedacht.
 -- Keine BEGIN-/COMMIT-Anweisungen, da DB Browser selbst eine Transaktion nutzt.
@@ -12,7 +12,7 @@ CREATE TABLE SchemaInfo
 );
 
 INSERT INTO SchemaInfo (SchemaVersion, CreatedUTC)
-VALUES (3, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+VALUES (5, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
 
 -- Fachliche Identitaet einer E-Mail in MailNotes.
 -- MailNotesID bleibt stabil; Outlook-IDs duerfen sich beim Verschieben aendern.
@@ -95,6 +95,80 @@ CREATE INDEX IX_Note_ModifiedUTC
 CREATE INDEX IX_Note_IsFavorite
     ON Note(IsFavorite)
     WHERE IsFavorite = 1 AND IsDeleted = 0;
+
+
+-- Aus dem Notiztext automatisch erkannte #Tags.
+-- NormalizedName dient dem gross-/kleinschreibungsunabhaengigen Vergleich.
+CREATE TABLE Tag
+(
+    ID             INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    Name           TEXT    NOT NULL,
+    NormalizedName TEXT    NOT NULL UNIQUE,
+
+    CHECK (length(Name) > 0),
+    CHECK (length(NormalizedName) > 0)
+);
+
+CREATE INDEX IX_Tag_Name
+    ON Tag(Name COLLATE NOCASE);
+
+-- n:m-Zuordnung zwischen Notizen und Tags.
+CREATE TABLE NoteTag
+(
+    NoteID INTEGER NOT NULL,
+    TagID  INTEGER NOT NULL,
+
+    PRIMARY KEY (NoteID, TagID),
+
+    FOREIGN KEY (NoteID)
+        REFERENCES Note(ID)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    FOREIGN KEY (TagID)
+        REFERENCES Tag(ID)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+);
+
+CREATE INDEX IX_NoteTag_TagID
+    ON NoteTag(TagID);
+
+-- Aus dem Notiztext automatisch erkannte @Personen.
+-- Ein Personentag beginnt am Zeilenanfang oder nach Leerzeichen/Tab und reicht bis Zeilenende/EOF.
+CREATE TABLE Person
+(
+    ID             INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    Name           TEXT    NOT NULL,
+    NormalizedName TEXT    NOT NULL UNIQUE,
+
+    CHECK (length(Name) > 0),
+    CHECK (length(NormalizedName) > 0)
+);
+
+CREATE INDEX IX_Person_Name
+    ON Person(Name COLLATE NOCASE);
+
+CREATE TABLE NotePerson
+(
+    NoteID   INTEGER NOT NULL,
+    PersonID INTEGER NOT NULL,
+
+    PRIMARY KEY (NoteID, PersonID),
+
+    FOREIGN KEY (NoteID)
+        REFERENCES Note(ID)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    FOREIGN KEY (PersonID)
+        REFERENCES Person(ID)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+);
+
+CREATE INDEX IX_NotePerson_PersonID
+    ON NotePerson(PersonID);
 
 -- Gerichtete Verknuepfung von einer Mail zu einer anderen Mail.
 CREATE TABLE MailLink
