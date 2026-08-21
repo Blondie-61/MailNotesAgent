@@ -1,8 +1,8 @@
-﻿MailNotes Agent – Windows-Setup 0.2
+﻿MailNotes Agent – Windows-Setup 0.4
 ==================================
 
-Produktversion des Agents: 1.0.0.2
-Version des Installers:    0.2
+Produktversion des Agents: 1.0.0.4
+Version des Installers:    0.4
 
 Erstellen des Installers
 -------------------------
@@ -15,7 +15,7 @@ Erstellen des Installers
 
 Das fertige Setup wird erzeugt unter:
 
-    Setup\Output\MailNotesAgent-Setup-1.0.0.2.exe
+    Setup\Output\MailNotesAgent-Setup-1.0.0.4.exe
 
 Installation
 ------------

@@ -2,7 +2,7 @@
 ; Erstellt mit Inno Setup 6
 
 #define MyAppName "MailNotes Agent"
-#define MyAppVersion "1.0.0.2"
+#define MyAppVersion "1.0.0.4"
 #define MySetupVersion "0.2"
 #define MyAppPublisher "MailNotes"
 #define MyAppExeName "MailNotesAgent.exe"
@@ -64,7 +64,6 @@ Root: HKLM; Subkey: "Software\MailNotes"; ValueType: string; ValueName: "AgentVe
 Root: HKLM; Subkey: "Software\MailNotes"; ValueType: string; ValueName: "SetupVersion"; ValueData: "{#MySetupVersion}"; Flags: uninsdeletekeyifempty
 
 [Run]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{tmp}\CreateLocalCertificate.ps1"" -OutputDir ""{commonappdata}\MailNotes\TLS"""; Flags: runhidden waituntilterminated
 Filename: "{app}\{#MyAppExeName}"; Description: "MailNotes Agent starten"; Flags: nowait postinstall skipifsilent
 
 [Code]
@@ -216,6 +215,40 @@ begin
       'Bitte beenden Sie ihn manuell und starten Sie das Setup anschließend erneut.';
 end;
 
+
+procedure CreateLocalCertificate;
+var
+  ResultCode: Integer;
+  PowerShellParams: string;
+begin
+  PowerShellParams :=
+    '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+    ExpandConstant('{tmp}\CreateLocalCertificate.ps1') +
+    '" -OutputDir "' +
+    ExpandConstant('{commonappdata}\MailNotes\TLS') + '"';
+
+  if not Exec(
+       ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+       PowerShellParams,
+       '',
+       SW_HIDE,
+       ewWaitUntilTerminated,
+       ResultCode
+     ) then
+    RaiseException('Die TLS-Zertifikatserzeugung konnte nicht gestartet werden.');
+
+  if ResultCode <> 0 then
+    RaiseException(
+      'Das lokale HTTPS-Zertifikat für MailNotes konnte nicht erzeugt werden.' + #13#10 +
+      'Die Installation wird abgebrochen, damit kein unvollständiger TLS-Zustand entsteht.'
+    );
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    CreateLocalCertificate;
+end;
 
 procedure CurPageChanged(CurPageID: Integer);
 begin
