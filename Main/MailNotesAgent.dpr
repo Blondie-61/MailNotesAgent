@@ -6,14 +6,20 @@
   {$APPTYPE CONSOLE}
 {$ENDIF}
 
-{$R *.res}
-{$R *.dres}
+{$IF Defined(MSWINDOWS)}
+  {$R *.res}
+  {$R *.dres}
+{$ENDIF}
 
 uses
   System.SysUtils,
   {$IF Defined(MSWINDOWS)}
   Winapi.Windows,
-  {$ENDIF }
+  {$ELSEIF Defined(MACOS)}
+  FireDAC.UI.Intf,
+  FireDAC.ConsoleUI.Wait,
+  FireDAC.Phys.SQLiteWrapper.Stat,
+  {$ENDIF}
   uAppPaths in 'uAppPaths.pas',
   uAppInfo in 'uAppInfo.pas',
   uRuntimeConfig in 'uRuntimeConfig.pas',
