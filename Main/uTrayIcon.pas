@@ -13,6 +13,9 @@ function SetMenuDefaultItem(
   uItem: UINT;
   fByPos: UINT
 ): BOOL; stdcall; external user32 name 'SetMenuDefaultItem';
+{$ELSEIF Defined(MACOS)}
+uses
+  Macapi.AppKit;
 {$ENDIF}
 
 type
@@ -58,6 +61,18 @@ type
     function DisplayState: TTrayState;
     function IconResourceID: Integer;
     function StatusText: string;
+{$ELSEIF Defined(MACOS)}
+    FStatusBar: NSStatusBar;
+    FStatusItem: NSStatusItem;
+    FPopupMenu: NSMenu;
+    FStatusImage: NSImage;
+
+    procedure CreateStatusItem;
+    procedure DestroyStatusItem;
+    procedure CreateTrayMenu;
+    procedure UpdateTrayIcon;
+    function IconFileName: string;
+    function StatusText: string;
 {$ENDIF}
   public
 {$IF Defined(MSWINDOWS)}
@@ -81,6 +96,11 @@ uses
   System.Classes,
   uTrayIconResources,
   uStatusDialog
+{$ELSEIF Defined(MACOS)}
+  , Macapi.Foundation,
+  Macapi.Helpers,
+  Macapi.ObjectiveC,
+  Macapi.ObjCRuntime
 {$ENDIF}
   ;
 
@@ -810,6 +830,193 @@ begin
   end;
 end;
 
+{$ELSEIF Defined(MACOS)}
+
+constructor TTrayIcon.Create;
+begin
+  inherited Create;
+  FState := tsOK;
+  FStatusBar := nil;
+  FStatusItem := nil;
+  FPopupMenu := nil;
+  FStatusImage := nil;
+
+  CreateStatusItem;
+end;
+
+
+destructor TTrayIcon.Destroy;
+begin
+  DestroyStatusItem;
+  inherited;
+end;
+
+
+procedure TTrayIcon.CreateStatusItem;
+begin
+  FStatusBar := TNSStatusBar.Wrap(TNSStatusBar.OCClass.systemStatusBar);
+  FStatusItem := FStatusBar.statusItemWithLength(NSVariableStatusItemLength);
+
+  if FStatusItem = nil then
+    raise Exception.Create('Das macOS-Menüleistenicon konnte nicht angelegt werden.');
+
+  // NSStatusBar hält das Statusitem nicht selbst fest. Ohne retain kann es
+  // deshalb wieder aus der Menüleiste verschwinden.
+  FStatusItem.retain;
+  FStatusItem.setHighlightMode(True);
+
+  CreateTrayMenu;
+  FStatusItem.setMenu(FPopupMenu);
+  UpdateTrayIcon;
+end;
+
+
+procedure TTrayIcon.DestroyStatusItem;
+begin
+  if FStatusBar <> nil then
+    if FStatusItem <> nil then
+      FStatusBar.removeStatusItem(FStatusItem);
+
+  if FStatusImage <> nil then
+  begin
+    FStatusImage.release;
+    FStatusImage := nil;
+  end;
+
+  if FPopupMenu <> nil then
+  begin
+    FPopupMenu.release;
+    FPopupMenu := nil;
+  end;
+
+  if FStatusItem <> nil then
+  begin
+    FStatusItem.release;
+    FStatusItem := nil;
+  end;
+
+  FStatusBar := nil;
+end;
+
+
+procedure TTrayIcon.CreateTrayMenu;
+var
+  MenuItem: NSMenuItem;
+begin
+  FPopupMenu := TNSMenu.Wrap(
+    TNSMenu.Alloc.initWithTitle(StrToNSStr('MailNotes Agent'))
+  );
+
+  MenuItem := TNSMenuItem.Wrap(
+    TNSMenuItem.Alloc.initWithTitle(
+      StrToNSStr(StatusText),
+      nil,
+      StrToNSStr('')
+    )
+  );
+  MenuItem.setEnabled(False);
+  FPopupMenu.addItem(MenuItem);
+  MenuItem.release;
+
+  MenuItem := TNSMenuItem.Wrap(
+    TNSMenuItem.Alloc.initWithTitle(
+      StrToNSStr('MailNotes Agent beenden'),
+      sel_getUid('terminate:'),
+      StrToNSStr('')
+    )
+  );
+  FPopupMenu.addItem(MenuItem);
+  MenuItem.release;
+end;
+
+
+procedure TTrayIcon.UpdateTrayIcon;
+var
+  ImagePath: string;
+  NewImage: NSImage;
+  StatusMenuItem: NSMenuItem;
+begin
+  ImagePath := TPath.Combine(
+    TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..')),
+    TPath.Combine(TPath.Combine('Resources', 'StartUp'), IconFileName)
+  );
+
+  NewImage := TNSImage.Wrap(
+    TNSImage.Alloc.initWithContentsOfFile(StrToNSStr(ImagePath))
+  );
+
+  if NewImage = nil then
+    raise Exception.CreateFmt(
+      'Das Menüleistenicon wurde nicht gefunden: %s',
+      [ImagePath]
+    );
+
+  // Die aktuellen SW-Icons sind gerenderte Graustufen-Icons und keine
+  // echten macOS-Template-Glyphen. Im Template-Modus würde macOS die
+  // komplette Alpha-Silhouette schwarz darstellen ("schwarzer Klotz").
+  //
+  // Außerdem die logische Bildgröße explizit auf Menüleistenformat setzen,
+  // da ein aus .icns geladenes NSImage sonst seine 128x128-Punkt-Größe
+  // beibehalten kann.
+  NewImage.setSize(NSMakeSize(18, 18));
+  NewImage.setTemplate(False);
+  FStatusItem.setImage(NewImage);
+
+  if FStatusImage <> nil then
+    FStatusImage.release;
+  FStatusImage := NewImage;
+
+  if (FPopupMenu <> nil) and (FPopupMenu.numberOfItems > 0) then
+  begin
+    StatusMenuItem := FPopupMenu.itemAtIndex(0);
+    StatusMenuItem.setTitle(StrToNSStr(StatusText));
+  end;
+end;
+
+
+function TTrayIcon.IconFileName: string;
+begin
+  case FState of
+    tsWarning:
+      Result := 'MN-WARN-SW.icns';
+
+    tsError:
+      Result := 'MN-ERR-SW.icns';
+  else
+    Result := 'MN-OK-SW.icns';
+  end;
+end;
+
+
+function TTrayIcon.StatusText: string;
+begin
+  case FState of
+    tsWarning:
+      Result := 'Status: Warnung';
+
+    tsError:
+      Result := 'Status: Fehler';
+
+    tsUpdateAvailable:
+      Result := 'Status: Update verfügbar';
+  else
+    Result := 'Status: Bereit';
+  end;
+end;
+
+
+procedure TTrayIcon.SetState(const State: TTrayState);
+begin
+  FState := State;
+  UpdateTrayIcon;
+end;
+
+
+procedure TTrayIcon.Run;
+begin
+  TNSApplication.Wrap(TNSApplication.OCClass.sharedApplication).run;
+end;
+
 {$ELSE}
 
 constructor TTrayIcon.Create;
@@ -833,8 +1040,6 @@ end;
 
 procedure TTrayIcon.Run;
 begin
-  Writeln('MailNotes Agent läuft. Zum Beenden Eingabetaste drücken.');
-  Readln;
 end;
 
 {$ENDIF}

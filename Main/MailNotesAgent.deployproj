@@ -15,6 +15,25 @@
     <ItemGroup Condition="'$(Platform)'=='Android64'"/>
     <ItemGroup Condition="'$(Platform)'=='Android'"/>
     <ItemGroup Condition="'$(Platform)'=='OSXARM64'">
+        <DeployFile Include="..\Resources\MacOS\MN-WARN-SW.icns" Condition="'$(Config)'=='Release'">
+            <RemoteDir>MailNotesAgent.app\Contents\Resources\StartUp\</RemoteDir>
+            <RemoteName>MN-WARN-SW.icns</RemoteName>
+            <DeployClass>File</DeployClass>
+            <Operation>0</Operation>
+            <LocalCommand/>
+            <RemoteCommand/>
+            <Overwrite>True</Overwrite>
+        </DeployFile>
+        <DeployFile Include="OSXARM64\Release\MailNotesAgent" Condition="'$(Config)'=='Release'">
+            <RemoteDir>MailNotesAgent.app\Contents\MacOS\</RemoteDir>
+            <RemoteName>MailNotesAgent</RemoteName>
+            <DeployClass>ProjectOutput</DeployClass>
+            <Operation>1</Operation>
+            <LocalCommand/>
+            <RemoteCommand/>
+            <Overwrite>True</Overwrite>
+            <Required>True</Required>
+        </DeployFile>
         <DeployFile Include="OSXARM64\Release\MailNotesAgent.info.plist" Condition="'$(Config)'=='Release'">
             <RemoteDir>MailNotesAgent.app\Contents\</RemoteDir>
             <RemoteName>Info.plist</RemoteName>
@@ -42,15 +61,23 @@
             <RemoteCommand/>
             <Overwrite>True</Overwrite>
         </DeployFile>
-        <DeployFile Include="OSXARM64\Release\MailNotesAgent" Condition="'$(Config)'=='Release'">
-            <RemoteDir>MailNotesAgent.app\Contents\MacOS\</RemoteDir>
-            <RemoteName>MailNotesAgent</RemoteName>
-            <DeployClass>ProjectOutput</DeployClass>
-            <Operation>1</Operation>
+        <DeployFile Include="..\Resources\MacOS\MN-OK-SW.icns" Condition="'$(Config)'=='Release'">
+            <RemoteDir>MailNotesAgent.app\Contents\Resources\StartUp\</RemoteDir>
+            <RemoteName>MN-OK-SW.icns</RemoteName>
+            <DeployClass>File</DeployClass>
+            <Operation>0</Operation>
             <LocalCommand/>
             <RemoteCommand/>
             <Overwrite>True</Overwrite>
-            <Required>True</Required>
+        </DeployFile>
+        <DeployFile Include="..\Resources\MacOS\MN-ERR-SW.icns" Condition="'$(Config)'=='Release'">
+            <RemoteDir>MailNotesAgent.app\Contents\Resources\StartUp\</RemoteDir>
+            <RemoteName>MN-ERR-SW.icns</RemoteName>
+            <DeployClass>File</DeployClass>
+            <Operation>0</Operation>
+            <LocalCommand/>
+            <RemoteCommand/>
+            <Overwrite>True</Overwrite>
         </DeployFile>
         <DeployFile Include="OSXARM64\Release\MailNotesAgent.entitlements" Condition="'$(Config)'=='Release'">
             <RemoteDir>MailNotesAgent.app\..\</RemoteDir>
@@ -91,16 +118,6 @@
         </DeployFile>
     </ItemGroup>
     <ItemGroup Condition="'$(Platform)'=='Win64'">
-        <DeployFile Include="Win64\Debug\MailNotesAgent.exe" Condition="'$(Config)'=='Debug'">
-            <RemoteDir>MailNotesAgent\</RemoteDir>
-            <RemoteName>MailNotesAgent.exe</RemoteName>
-            <DeployClass>ProjectOutput</DeployClass>
-            <Operation>0</Operation>
-            <LocalCommand/>
-            <RemoteCommand/>
-            <Overwrite>True</Overwrite>
-            <Required>True</Required>
-        </DeployFile>
         <DeployFile Include="..\Resources\Windows\MN-OK-ALL.ico" Condition="'$(Config)'=='Release'">
             <RemoteDir>MailNotesAgent\</RemoteDir>
             <RemoteName>MN-OK-ALL.ico</RemoteName>
@@ -111,6 +128,16 @@
             <Overwrite>True</Overwrite>
         </DeployFile>
         <DeployFile Include="Win64\Release\MailNotesAgent.exe" Condition="'$(Config)'=='Release'">
+            <RemoteDir>MailNotesAgent\</RemoteDir>
+            <RemoteName>MailNotesAgent.exe</RemoteName>
+            <DeployClass>ProjectOutput</DeployClass>
+            <Operation>0</Operation>
+            <LocalCommand/>
+            <RemoteCommand/>
+            <Overwrite>True</Overwrite>
+            <Required>True</Required>
+        </DeployFile>
+        <DeployFile Include="Win64\Debug\MailNotesAgent.exe" Condition="'$(Config)'=='Debug'">
             <RemoteDir>MailNotesAgent\</RemoteDir>
             <RemoteName>MailNotesAgent.exe</RemoteName>
             <DeployClass>ProjectOutput</DeployClass>

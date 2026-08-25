@@ -63,8 +63,10 @@ begin
   if Origin = '' then
     Exit(False);
 
-{$IFDEF DEBUG}
-  // Development: webpack-Devserver.
+{$IF Defined(DEBUG) or Defined(MACOS)}
+  // Development sowie der aktuelle macOS-Release-Betrieb:
+  // Das Outlook-Add-in läuft auf dem lokalen webpack-HTTPS-Server,
+  // der Agent selbst auf http://127.0.0.1:48571.
   if SameText(Origin, 'https://localhost:3000') then
     Exit(True);
   if SameText(Origin, 'https://127.0.0.1:3000') then

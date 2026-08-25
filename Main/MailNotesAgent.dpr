@@ -48,12 +48,12 @@ begin
 {$IF Defined(MSWINDOWS)}
   MessageBox(
     0,
-    'MailNotes Agent läuft bereits.',
+    PChar('MailNotes Agent v' + TAppInfo.Version + ' läuft bereits.'),
     'MailNotes Agent',
     MB_OK or MB_ICONINFORMATION
   );
 {$ELSE}
-  Writeln('MailNotes Agent läuft bereits.');
+  Writeln('MailNotes Agent v' + TAppInfo.Version + ' läuft bereits.');
 {$ENDIF}
 end;
 
