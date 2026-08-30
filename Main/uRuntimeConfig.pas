@@ -36,8 +36,9 @@ end;
 
 class function TRuntimeConfig.UseHttps: Boolean;
 begin
-{$IF Defined(MSWINDOWS) and not Defined(DEBUG)}
-  // Das produktive Outlook-Add-in wird direkt vom Agent über HTTPS geladen.
+{$IF (Defined(MSWINDOWS) or Defined(MACOS)) and not Defined(DEBUG)}
+  // Im produktiven Betrieb wird das Outlook-Add-in direkt vom Agent
+  // über HTTPS auf localhost:48571 geladen.
   Result := True;
 {$ELSE}
   // Entwicklung bleibt wie bisher: webpack HTTPS -> Agent HTTP.

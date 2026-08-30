@@ -24,6 +24,15 @@
             <RemoteCommand/>
             <Overwrite>True</Overwrite>
         </DeployFile>
+        <DeployFile Include="$(BDS)\Redist\osx64\libcgsqlite3.dylib" Condition="'$(Config)'=='Release'">
+            <RemoteDir>MailNotesAgent.app\Contents\MacOS\</RemoteDir>
+            <RemoteName>libcgsqlite3.dylib</RemoteName>
+            <DeployClass>File</DeployClass>
+            <Operation>0</Operation>
+            <LocalCommand/>
+            <RemoteCommand/>
+            <Overwrite>True</Overwrite>
+        </DeployFile>
         <DeployFile Include="OSXARM64\Release\MailNotesAgent" Condition="'$(Config)'=='Release'">
             <RemoteDir>MailNotesAgent.app\Contents\MacOS\</RemoteDir>
             <RemoteName>MailNotesAgent</RemoteName>
@@ -34,11 +43,29 @@
             <Overwrite>True</Overwrite>
             <Required>True</Required>
         </DeployFile>
+        <DeployFile Include="..\Resources\MacOS\OpenSSL\libssl.3.dylib" Condition="'$(Config)'=='Release'">
+            <RemoteDir>MailNotesAgent.app\Contents\MacOS\</RemoteDir>
+            <RemoteName>libssl.3.dylib</RemoteName>
+            <DeployClass>File</DeployClass>
+            <Operation>0</Operation>
+            <LocalCommand/>
+            <RemoteCommand/>
+            <Overwrite>True</Overwrite>
+        </DeployFile>
         <DeployFile Include="OSXARM64\Release\MailNotesAgent.info.plist" Condition="'$(Config)'=='Release'">
             <RemoteDir>MailNotesAgent.app\Contents\</RemoteDir>
             <RemoteName>Info.plist</RemoteName>
             <DeployClass>ProjectOSXInfoPList</DeployClass>
             <Operation>1</Operation>
+            <LocalCommand/>
+            <RemoteCommand/>
+            <Overwrite>True</Overwrite>
+        </DeployFile>
+        <DeployFile Include="..\Resources\MacOS\OpenSSL\libcrypto.3.dylib" Condition="'$(Config)'=='Release'">
+            <RemoteDir>MailNotesAgent.app\Contents\MacOS\</RemoteDir>
+            <RemoteName>libcrypto.3.dylib</RemoteName>
+            <DeployClass>File</DeployClass>
+            <Operation>0</Operation>
             <LocalCommand/>
             <RemoteCommand/>
             <Overwrite>True</Overwrite>
@@ -84,15 +111,6 @@
             <RemoteName>MailNotesAgent.entitlements</RemoteName>
             <DeployClass>ProjectOSXEntitlements</DeployClass>
             <Operation>1</Operation>
-            <LocalCommand/>
-            <RemoteCommand/>
-            <Overwrite>True</Overwrite>
-        </DeployFile>
-        <DeployFile Include="$(BDS)\Redist\osx64\libcgsqlite3.dylib" Condition="'$(Config)'=='Release'">
-            <RemoteDir>MailNotesAgent.app\Contents\MacOS\</RemoteDir>
-            <RemoteName>libcgsqlite3.dylib</RemoteName>
-            <DeployClass>File</DeployClass>
-            <Operation>0</Operation>
             <LocalCommand/>
             <RemoteCommand/>
             <Overwrite>True</Overwrite>

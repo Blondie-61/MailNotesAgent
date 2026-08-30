@@ -12,9 +12,15 @@ uses
   IdHTTPServer,
   IdContext,
   IdCustomHTTPServer,
-{$IFDEF MSWINDOWS}
+{$IF Defined(MACOS)}
+  IdGlobal,
+{$ENDIF}
+{$IF Defined(MSWINDOWS) or Defined(MACOS)}
   IdSecOpenSSL,
   IdSecOpenSSLOptions,
+{$ENDIF}
+{$IF Defined(MACOS)}
+  OpenSSLAPI,
 {$ENDIF}
 
   uDatabase,
@@ -29,7 +35,7 @@ type
   THttpServer = class
   private
     FServer: TIdHTTPServer;
-{$IFDEF MSWINDOWS}
+{$IF Defined(MSWINDOWS) or Defined(MACOS)}
     FSSLIOHandler: TIdSecServerIOHandlerSSLOpenSSL;
 {$ENDIF}
     FDatabase: TDatabase;
@@ -37,7 +43,7 @@ type
     FLogLock: TObject;
 
     procedure HandleCommandGet(AContext: TIdContext; ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
-{$IFDEF MSWINDOWS}
+{$IF Defined(MSWINDOWS) or Defined(MACOS)}
     procedure HandleQuerySSLPort(APort: Word; var VUseSSL: Boolean);
 {$ENDIF}
     procedure RouteRequest(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
@@ -94,10 +100,17 @@ begin
   FServer := TIdHTTPServer.Create(nil);
   FServer.OnCommandGet := HandleCommandGet;
   FServer.OnCommandOther := HandleCommandGet;
-{$IFDEF MSWINDOWS}
+{$IF Defined(MSWINDOWS) or Defined(MACOS)}
   FSSLIOHandler := nil;
   if TRuntimeConfig.UseHttps then
   begin
+{$IF Defined(MACOS)}
+    // OpenSSL wird zusammen mit MailNotesAgent.app ausgeliefert.
+    // IndySecOpenSSL soll deshalb zuerst direkt neben dem Executable suchen:
+    //   MailNotesAgent.app/Contents/MacOS/libssl.3.dylib
+    //   MailNotesAgent.app/Contents/MacOS/libcrypto.3.dylib
+    GetIOpenSSLDDL.SetOpenSSLPath(ExtractFilePath(ParamStr(0)));
+{$ENDIF}
     FSSLIOHandler := TIdSecServerIOHandlerSSLOpenSSL.Create(nil);
     FServer.IOHandler := FSSLIOHandler;
     FServer.OnQuerySSLPort := HandleQuerySSLPort;
@@ -111,7 +124,7 @@ begin
     Stop;
   finally
     FServer.Free;
-{$IFDEF MSWINDOWS}
+{$IF Defined(MSWINDOWS) or Defined(MACOS)}
     FSSLIOHandler.Free;
 {$ENDIF}
     FLogLock.Free;
@@ -125,7 +138,7 @@ begin
   if FServer.Active then
     Exit;
 
-{$IFDEF MSWINDOWS}
+{$IF Defined(MSWINDOWS) or Defined(MACOS)}
   if TRuntimeConfig.UseHttps then
   begin
     if not TFile.Exists(TAppPaths.TlsCertificateFile) then
@@ -154,6 +167,16 @@ begin
     IP := TRuntimeConfig.HttpBindAddress;
     Port := TRuntimeConfig.HttpPort;
   end;
+{$IF Defined(MACOS) and not Defined(DEBUG)}
+  // Outlook/macOS kann "localhost" bevorzugt als ::1 auflösen.
+  // Deshalb im Produktionsbetrieb zusätzlich explizit auf IPv6-Loopback lauschen.
+  with FServer.Bindings.Add do
+  begin
+    IPVersion := Id_IPv6;
+    IP := '::1';
+    Port := TRuntimeConfig.HttpPort;
+  end;
+{$ENDIF}
   FServer.DefaultPort := TRuntimeConfig.HttpPort;
   FServer.Active := True;
 end;
@@ -164,7 +187,7 @@ begin
     FServer.Active := False;
 end;
 
-{$IFDEF MSWINDOWS}
+{$IF Defined(MSWINDOWS) or Defined(MACOS)}
 procedure THttpServer.HandleQuerySSLPort(APort: Word; var VUseSSL: Boolean);
 begin
   VUseSSL := TRuntimeConfig.UseHttps and (APort = TRuntimeConfig.HttpPort);
