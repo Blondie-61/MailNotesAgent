@@ -6,7 +6,8 @@ interface
 uses
   Winapi.Windows,
   Winapi.Messages,
-  uUpdater;
+  uUpdater,
+  uHttpServer;
 
 function SetMenuDefaultItem(
   hMenu: HMENU;
@@ -15,10 +16,40 @@ function SetMenuDefaultItem(
 ): BOOL; stdcall; external user32 name 'SetMenuDefaultItem';
 {$ELSEIF Defined(MACOS)}
 uses
-  Macapi.AppKit;
+  System.TypInfo,
+  Macapi.AppKit,
+  Macapi.CocoaTypes,
+  Macapi.Foundation,
+  Macapi.ObjectiveC,
+  uHttpServer;
 {$ENDIF}
 
 type
+{$IF Defined(MACOS)}
+  IMailNotesMenuHandler = interface(NSObject)
+    ['{B461B6E4-B0A8-47D2-A8DC-536494CEAA3D}']
+    procedure showAgentInfo; cdecl;
+    procedure revealAgentInFinder; cdecl;
+    procedure revealDatabaseInFinder; cdecl;
+    procedure changeDatabasePath; cdecl;
+  end;
+
+  TTrayIcon = class;
+
+  TMacMenuHandler = class(TOCLocal)
+  private
+    FOwner: TTrayIcon;
+  protected
+    function GetObjectiveCClass: PTypeInfo; override;
+  public
+    constructor Create(const AOwner: TTrayIcon);
+    procedure showAgentInfo; cdecl;
+    procedure revealAgentInFinder; cdecl;
+    procedure revealDatabaseInFinder; cdecl;
+    procedure changeDatabasePath; cdecl;
+  end;
+{$ENDIF}
+
   TTrayState = (
     tsOK,
     tsWarning,
@@ -41,6 +72,7 @@ type
     FDownloadedInstallerFile: string;
     FDownloadedVersion: string;
     FUpdatePromptedVersion: string;
+    FHttpServer: THttpServer;
 
     procedure WindowMessage(var Message: TMessage);
     procedure CreateTrayMenu;
@@ -58,6 +90,7 @@ type
     procedure UpdateUpdateMenu;
     procedure OpenDataDirectory;
     procedure OpenLogFile;
+    procedure ChangeDatabasePath;
     function DisplayState: TTrayState;
     function IconResourceID: Integer;
     function StatusText: string;
@@ -66,11 +99,20 @@ type
     FStatusItem: NSStatusItem;
     FPopupMenu: NSMenu;
     FStatusImage: NSImage;
+    FMenuHandler: TMacMenuHandler;
+    FInfoWindow: NSWindow;
+    FHttpServer: THttpServer;
+    FDatabaseLink: NSButton;
 
     procedure CreateStatusItem;
     procedure DestroyStatusItem;
     procedure CreateTrayMenu;
     procedure UpdateTrayIcon;
+    procedure ShowAgentInfo;
+    procedure RevealAgentInFinder;
+    procedure RevealDatabaseInFinder;
+    procedure ChangeDatabasePath;
+    procedure ShowMacMessage(const AMessage, ADetails: string);
     function IconFileName: string;
     function StatusText: string;
 {$ENDIF}
@@ -78,7 +120,11 @@ type
 {$IF Defined(MSWINDOWS)}
     class procedure RequestRunningInstanceShutdown; static;
 {$ENDIF}
+{$IF Defined(MSWINDOWS) or Defined(MACOS)}
+    constructor Create(AHttpServer: THttpServer);
+{$ELSE}
     constructor Create;
+{$ENDIF}
     destructor Destroy; override;
 
     procedure SetState(const State: TTrayState);
@@ -93,14 +139,14 @@ uses
   uAppPaths
 {$IF Defined(MSWINDOWS)}
   , Winapi.ShellAPI,
+  Winapi.CommDlg,
   System.Classes,
   uTrayIconResources,
   uStatusDialog
 {$ELSEIF Defined(MACOS)}
-  , Macapi.Foundation,
-  Macapi.Helpers,
-  Macapi.ObjectiveC,
-  Macapi.ObjCRuntime
+  , Macapi.Helpers,
+  Macapi.ObjCRuntime,
+  uAppInfo
 {$ENDIF}
   ;
 
@@ -119,7 +165,8 @@ const
   MENU_CHECK_UPDATES = 1002;
   MENU_OPEN_DATA = 1003;
   MENU_OPEN_LOG = 1004;
-  MENU_EXIT = 1005;
+  MENU_CHANGE_DATABASE = 1005;
+  MENU_EXIT = 1006;
 
 type
   TAutomaticUpdateResult = record
@@ -129,10 +176,11 @@ type
   end;
   PAutomaticUpdateResult = ^TAutomaticUpdateResult;
 
-constructor TTrayIcon.Create;
+constructor TTrayIcon.Create(AHttpServer: THttpServer);
 begin
   inherited Create;
 
+  FHttpServer := AHttpServer;
   FState := tsOK;
   FUpdateAvailable := False;
   FLatestVersion := '';
@@ -269,6 +317,7 @@ begin
   AppendMenu(FPopupMenu, MF_SEPARATOR, 0, nil);
   AppendMenu(FPopupMenu, MF_STRING, MENU_OPEN_DATA, 'Datenordner öffnen');
   AppendMenu(FPopupMenu, MF_STRING, MENU_OPEN_LOG, 'Logdatei öffnen');
+  AppendMenu(FPopupMenu, MF_STRING, MENU_CHANGE_DATABASE, 'Datenbankpfad ändern...');
   AppendMenu(FPopupMenu, MF_SEPARATOR, 0, nil);
   AppendMenu(FPopupMenu, MF_STRING, MENU_EXIT, 'MailNotes Agent beenden');
 end;
@@ -412,11 +461,99 @@ begin
     MENU_OPEN_LOG:
       OpenLogFile;
 
+    MENU_CHANGE_DATABASE:
+      ChangeDatabasePath;
+
     MENU_EXIT:
       begin
         RemoveTrayIcon;
         PostQuitMessage(0);
       end;
+  end;
+end;
+
+
+procedure TTrayIcon.ChangeDatabasePath;
+const
+  FILE_BUFFER_CHARS = 32768;
+var
+  Dialog: TOpenFilenameW;
+  FileBuffer: array[0..FILE_BUFFER_CHARS - 1] of WideChar;
+  InitialDir: string;
+  CurrentFile: string;
+  NewPath: string;
+  Mode: string;
+  InfoText: string;
+  Filter: string;
+begin
+  if FHttpServer = nil then
+  begin
+    MessageBoxW(
+      FWindowHandle,
+      'Der HTTP-Server ist nicht verfügbar.',
+      'Datenbankpfad kann nicht geändert werden',
+      MB_OK or MB_ICONERROR
+    );
+    Exit;
+  end;
+
+  CurrentFile := TAppPaths.DatabaseFile;
+  InitialDir := ExtractFilePath(CurrentFile);
+
+  FillChar(FileBuffer, SizeOf(FileBuffer), 0);
+  StrPLCopy(FileBuffer, ExtractFileName(CurrentFile), FILE_BUFFER_CHARS - 1);
+
+  // Windows benötigt für die Filterliste eingebettete #0-Zeichen.
+  Filter := 'SQLite-Datenbank (*.sqlite)' + #0 + '*.sqlite' + #0 +
+            'Alle Dateien (*.*)' + #0 + '*.*' + #0 + #0;
+
+  FillChar(Dialog, SizeOf(Dialog), 0);
+  Dialog.lStructSize := SizeOf(Dialog);
+  Dialog.hwndOwner := FWindowHandle;
+  Dialog.lpstrFilter := PWideChar(Filter);
+  Dialog.nFilterIndex := 1;
+  Dialog.lpstrFile := @FileBuffer[0];
+  Dialog.nMaxFile := FILE_BUFFER_CHARS;
+  Dialog.lpstrInitialDir := PWideChar(InitialDir);
+  Dialog.lpstrTitle := 'MailNotes-Datenbank auswählen';
+  Dialog.lpstrDefExt := 'sqlite';
+  Dialog.Flags := OFN_EXPLORER or OFN_PATHMUSTEXIST or OFN_HIDEREADONLY;
+
+  // GetSaveFileName ist hier bewusst gewählt: So kann entweder eine bereits
+  // vorhandene Datenbank ausgewählt oder in einem neuen Zielordner eine neue
+  // MailNotes.sqlite angegeben werden. Die Datei wird vom Dialog selbst nicht
+  // angelegt oder überschrieben.
+  if not GetSaveFileNameW(Dialog) then
+    Exit;
+
+  NewPath := FileBuffer;
+  if Trim(NewPath) = '' then
+    Exit;
+
+  try
+    NewPath := FHttpServer.ChangeDatabasePath(NewPath, Mode);
+
+    if SameText(Mode, 'adopted') then
+      InfoText := 'Die vorhandene Datenbank wurde übernommen.'
+    else if SameText(Mode, 'moved') then
+      InfoText := 'Die bisherige Datenbank wurde an den neuen Ort kopiert und übernommen.'
+    else
+      InfoText := 'Der Datenbankpfad ist unverändert.';
+
+    MessageBoxW(
+      FWindowHandle,
+      PWideChar(InfoText + sLineBreak + sLineBreak + NewPath),
+      'Datenbankpfad aktualisiert',
+      MB_OK or MB_ICONINFORMATION
+    );
+  except
+    on E: Exception do
+      MessageBoxW(
+        FWindowHandle,
+        PWideChar(E.Message),
+        'Datenbankpfad konnte nicht geändert werden',
+        MB_OK or MB_ICONERROR
+      );
   end;
 end;
 
@@ -832,7 +969,48 @@ end;
 
 {$ELSEIF Defined(MACOS)}
 
-constructor TTrayIcon.Create;
+constructor TMacMenuHandler.Create(const AOwner: TTrayIcon);
+begin
+  FOwner := AOwner;
+  inherited Create;
+end;
+
+
+function TMacMenuHandler.GetObjectiveCClass: PTypeInfo;
+begin
+  Result := TypeInfo(IMailNotesMenuHandler);
+end;
+
+
+procedure TMacMenuHandler.showAgentInfo;
+begin
+  if FOwner <> nil then
+    FOwner.ShowAgentInfo;
+end;
+
+
+procedure TMacMenuHandler.revealAgentInFinder;
+begin
+  if FOwner <> nil then
+    FOwner.RevealAgentInFinder;
+end;
+
+
+procedure TMacMenuHandler.revealDatabaseInFinder;
+begin
+  if FOwner <> nil then
+    FOwner.RevealDatabaseInFinder;
+end;
+
+
+procedure TMacMenuHandler.changeDatabasePath;
+begin
+  if FOwner <> nil then
+    FOwner.ChangeDatabasePath;
+end;
+
+
+constructor TTrayIcon.Create(AHttpServer: THttpServer);
 begin
   inherited Create;
   FState := tsOK;
@@ -840,6 +1018,10 @@ begin
   FStatusItem := nil;
   FPopupMenu := nil;
   FStatusImage := nil;
+  FInfoWindow := nil;
+  FHttpServer := AHttpServer;
+  FDatabaseLink := nil;
+  FMenuHandler := TMacMenuHandler.Create(Self);
 
   CreateStatusItem;
 end;
@@ -847,7 +1029,16 @@ end;
 
 destructor TTrayIcon.Destroy;
 begin
+  if FInfoWindow <> nil then
+  begin
+    FInfoWindow.close;
+    FInfoWindow.release;
+    FInfoWindow := nil;
+    FDatabaseLink := nil;
+  end;
+
   DestroyStatusItem;
+  FreeAndNil(FMenuHandler);
   inherited;
 end;
 
@@ -920,6 +1111,17 @@ begin
 
   MenuItem := TNSMenuItem.Wrap(
     TNSMenuItem.Alloc.initWithTitle(
+      StrToNSStr('MailNotes Agent …'),
+      sel_getUid('showAgentInfo'),
+      StrToNSStr('')
+    )
+  );
+  MenuItem.setTarget(FMenuHandler.GetObjectID);
+  FPopupMenu.addItem(MenuItem);
+  MenuItem.release;
+
+  MenuItem := TNSMenuItem.Wrap(
+    TNSMenuItem.Alloc.initWithTitle(
       StrToNSStr('MailNotes Agent beenden'),
       sel_getUid('terminate:'),
       StrToNSStr('')
@@ -974,6 +1176,160 @@ begin
 end;
 
 
+procedure TTrayIcon.ShowAgentInfo;
+var
+  ContentView: NSView;
+  CaptionLabel: NSTextField;
+  VersionLabel: NSTextField;
+  AgentLabel: NSTextField;
+  DatabaseLabel: NSTextField;
+  AgentLink: NSButton;
+  ChangeButton: NSButton;
+  App: NSApplication;
+
+  function NewLabel(const Text: string; const X, Y, W, H: Single): NSTextField;
+  begin
+    Result := TNSTextField.Wrap(
+      TNSTextField.Alloc.initWithFrame(MakeNSRect(X, Y, W, H))
+    );
+    Result.setStringValue(StrToNSStr(Text));
+    Result.setEditable(False);
+    Result.setSelectable(False);
+    Result.setBezeled(False);
+    Result.setDrawsBackground(False);
+  end;
+
+  function NewLink(
+    const Text: string;
+    const SelectorName: PAnsiChar;
+    const X, Y, W, H: Single
+  ): NSButton;
+  begin
+    Result := TNSButton.Wrap(
+      TNSButton.Alloc.initWithFrame(MakeNSRect(X, Y, W, H))
+    );
+    Result.setTitle(StrToNSStr(Text));
+    Result.setBordered(False);
+    Result.setFocusRingType(NSFocusRingTypeNone);
+    Result.setAlignment(NSLeftTextAlignment);
+    Result.setTarget(FMenuHandler.GetObjectID);
+    Result.setAction(sel_getUid(SelectorName));
+  end;
+
+  function NewButton(
+    const Text: string;
+    const SelectorName: PAnsiChar;
+    const X, Y, W, H: Single
+  ): NSButton;
+  begin
+    Result := TNSButton.Wrap(
+      TNSButton.Alloc.initWithFrame(MakeNSRect(X, Y, W, H))
+    );
+    Result.setTitle(StrToNSStr(Text));
+    Result.setBezelStyle(NSRoundedBezelStyle);
+    Result.setFocusRingType(NSFocusRingTypeNone);
+    Result.setTarget(FMenuHandler.GetObjectID);
+    Result.setAction(sel_getUid(SelectorName));
+  end;
+
+begin
+  if FInfoWindow = nil then
+  begin
+    FInfoWindow := TNSWindow.Wrap(
+      TNSWindow.Alloc.initWithContentRect(
+        MakeNSRect(0, 0, 620, 230),
+        NSTitledWindowMask or NSClosableWindowMask,
+        NSBackingStoreBuffered,
+        False
+      )
+    );
+
+    FInfoWindow.setTitle(StrToNSStr('MailNotes Agent'));
+    FInfoWindow.setReleasedWhenClosed(False);
+    FInfoWindow.center;
+
+    ContentView := TNSView.Wrap(FInfoWindow.contentView);
+
+    CaptionLabel := NewLabel('MailNotes Agent', 24, 184, 570, 24);
+    CaptionLabel.setFont(TNSFont.Wrap(TNSFont.OCClass.boldSystemFontOfSize(16)));
+    ContentView.addSubview(CaptionLabel);
+    CaptionLabel.release;
+
+    VersionLabel := NewLabel('Version: ' + TAppInfo.Version, 24, 156, 570, 20);
+    ContentView.addSubview(VersionLabel);
+    VersionLabel.release;
+
+    AgentLabel := NewLabel('Agent:', 24, 116, 570, 18);
+    ContentView.addSubview(AgentLabel);
+    AgentLabel.release;
+
+    AgentLink := NewLink(
+      TAppPaths.AgentFile,
+      'revealAgentInFinder',
+      20, 89, 580, 26
+    );
+    ContentView.addSubview(AgentLink);
+    AgentLink.release;
+
+    DatabaseLabel := NewLabel('Datenbank:', 24, 54, 570, 18);
+    ContentView.addSubview(DatabaseLabel);
+    DatabaseLabel.release;
+
+    FDatabaseLink := NewLink(
+      TAppPaths.DatabaseFile,
+      'revealDatabaseInFinder',
+      20, 27, 430, 26
+    );
+    ContentView.addSubview(FDatabaseLink);
+    FDatabaseLink.release;
+
+    ChangeButton := NewButton(
+      'Pfad ändern …',
+      'changeDatabasePath',
+      465, 27, 130, 26
+    );
+    ContentView.addSubview(ChangeButton);
+    ChangeButton.release;
+  end;
+
+  if FDatabaseLink <> nil then
+    FDatabaseLink.setTitle(StrToNSStr(TAppPaths.DatabaseFile));
+
+  App := TNSApplication.Wrap(TNSApplication.OCClass.sharedApplication);
+  App.activateIgnoringOtherApps(True);
+  FInfoWindow.makeKeyAndOrderFront(nil);
+end;
+
+
+procedure TTrayIcon.RevealAgentInFinder;
+var
+  Workspace: NSWorkspace;
+begin
+  Workspace := TNSWorkspace.Wrap(TNSWorkspace.OCClass.sharedWorkspace);
+  Workspace.selectFile(
+    StrToNSStr(TAppPaths.AgentFile),
+    StrToNSStr('')
+  );
+end;
+
+
+procedure TTrayIcon.RevealDatabaseInFinder;
+var
+  Workspace: NSWorkspace;
+begin
+  TAppPaths.EnsureDataDirectory;
+  Workspace := TNSWorkspace.Wrap(TNSWorkspace.OCClass.sharedWorkspace);
+
+  if TFile.Exists(TAppPaths.DatabaseFile) then
+    Workspace.selectFile(
+      StrToNSStr(TAppPaths.DatabaseFile),
+      StrToNSStr('')
+    )
+  else
+    Workspace.openFile(StrToNSStr(TAppPaths.DataDirectory));
+end;
+
+
 function TTrayIcon.IconFileName: string;
 begin
   case FState of
@@ -984,6 +1340,92 @@ begin
       Result := 'MN-ERR-SW.icns';
   else
     Result := 'MN-OK-SW.icns';
+  end;
+end;
+
+
+procedure TTrayIcon.ShowMacMessage(const AMessage, ADetails: string);
+var
+  Alert: NSAlert;
+begin
+  Alert := TNSAlert.Wrap(TNSAlert.Alloc.init);
+  try
+    Alert.setMessageText(StrToNSStr(AMessage));
+    if ADetails <> '' then
+      Alert.setInformativeText(StrToNSStr(ADetails));
+    Alert.addButtonWithTitle(StrToNSStr('OK'));
+    Alert.runModal;
+  finally
+    Alert.release;
+  end;
+end;
+
+
+procedure TTrayIcon.ChangeDatabasePath;
+var
+  Panel: NSOpenPanel;
+  SelectedURL: NSURL;
+  SelectedPath: string;
+  NewPath: string;
+  Mode: string;
+  InfoText: string;
+begin
+  if FHttpServer = nil then
+  begin
+    ShowMacMessage(
+      'Datenbankpfad kann nicht geändert werden.',
+      'Der HTTP-Server ist nicht verfügbar.'
+    );
+    Exit;
+  end;
+
+  Panel := TNSOpenPanel.Wrap(TNSOpenPanel.OCClass.openPanel);
+  Panel.setTitle(StrToNSStr('MailNotes-Datenbank auswählen'));
+  Panel.setMessage(StrToNSStr(
+    'Wähle einen Ordner für MailNotes.sqlite oder eine vorhandene SQLite-Datenbank aus.'
+  ));
+  Panel.setPrompt(StrToNSStr('Auswählen'));
+  Panel.setCanChooseDirectories(True);
+  Panel.setCanChooseFiles(True);
+  Panel.setAllowsMultipleSelection(False);
+  Panel.setCanCreateDirectories(True);
+
+  // NSModalResponseOK hat unter macOS den Wert 1. Die numerische Prüfung
+  // vermeidet Abhängigkeiten von unterschiedlich benannten Delphi-SDK-Konstanten.
+  if Panel.runModal <> 1 then
+    Exit;
+
+  SelectedURL := Panel.URL;
+  if SelectedURL = nil then
+    Exit;
+
+  SelectedPath := NSStrToStr(SelectedURL.path);
+  if SelectedPath = '' then
+    Exit;
+
+  try
+    NewPath := FHttpServer.ChangeDatabasePath(SelectedPath, Mode);
+
+    if FDatabaseLink <> nil then
+      FDatabaseLink.setTitle(StrToNSStr(NewPath));
+
+    if SameText(Mode, 'adopted') then
+      InfoText := 'Die vorhandene Datenbank wurde übernommen.'
+    else if SameText(Mode, 'moved') then
+      InfoText := 'Die bisherige Datenbank wurde an den neuen Ort kopiert und übernommen.'
+    else
+      InfoText := 'Der Datenbankpfad ist unverändert.';
+
+    ShowMacMessage(
+      'Datenbankpfad aktualisiert',
+      InfoText + sLineBreak + sLineBreak + NewPath
+    );
+  except
+    on E: Exception do
+      ShowMacMessage(
+        'Datenbankpfad konnte nicht geändert werden.',
+        E.Message
+      );
   end;
 end;
 

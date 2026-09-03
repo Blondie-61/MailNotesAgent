@@ -4,7 +4,8 @@ interface
 
 uses
   System.SysUtils,
-  System.IOUtils;
+  System.IOUtils,
+  System.IniFiles;
 
 type
   TAppPaths = class sealed
@@ -13,7 +14,10 @@ type
     class function AgentFile: string; static;
     class function AddinDirectory: string; static;
     class function DataDirectory: string; static;
+    class function DefaultDatabaseFile: string; static;
     class function DatabaseFile: string; static;
+    class function ConfigFile: string; static;
+    class procedure SetDatabaseFile(const AFileName: string); static;
     class function LogFile: string; static;
     class function TlsDirectory: string; static;
     class function TlsCertificateFile: string; static;
@@ -77,9 +81,55 @@ begin
   Result := TPath.Combine(BaseDirectory, 'MailNotes');
 end;
 
-class function TAppPaths.DatabaseFile: string;
+class function TAppPaths.DefaultDatabaseFile: string;
 begin
   Result := TPath.Combine(DataDirectory, 'MailNotes.sqlite');
+end;
+
+class function TAppPaths.ConfigFile: string;
+begin
+  Result := TPath.Combine(DataDirectory, 'mailnotes.ini');
+end;
+
+class function TAppPaths.DatabaseFile: string;
+var
+  Ini: TIniFile;
+  ConfiguredPath: string;
+begin
+  Result := DefaultDatabaseFile;
+
+  if not TFile.Exists(ConfigFile) then
+    Exit;
+
+  Ini := TIniFile.Create(ConfigFile);
+  try
+    ConfiguredPath := Trim(Ini.ReadString('Database', 'Path', ''));
+  finally
+    Ini.Free;
+  end;
+
+  if ConfiguredPath <> '' then
+    Result := TPath.GetFullPath(ConfiguredPath);
+end;
+
+class procedure TAppPaths.SetDatabaseFile(const AFileName: string);
+var
+  Ini: TIniFile;
+  NormalizedPath: string;
+begin
+  EnsureDataDirectory;
+  NormalizedPath := Trim(AFileName);
+
+  Ini := TIniFile.Create(ConfigFile);
+  try
+    if (NormalizedPath = '') or SameText(TPath.GetFullPath(NormalizedPath), DefaultDatabaseFile) then
+      Ini.DeleteKey('Database', 'Path')
+    else
+      Ini.WriteString('Database', 'Path', TPath.GetFullPath(NormalizedPath));
+    Ini.UpdateFile;
+  finally
+    Ini.Free;
+  end;
 end;
 
 class function TAppPaths.LogFile: string;
@@ -147,3 +197,4 @@ begin
 end;
 
 end.
+

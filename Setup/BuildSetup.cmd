@@ -21,16 +21,16 @@ if not exist "..\Resources\Windows\MN-OK-ALL.ico" (
   exit /b 3
 )
 
-if not exist "Addin\taskpane.html" (
-  echo FEHLER: Setup\Addin\taskpane.html fehlt.
-  echo Bitte zuerst den Production-Build des Outlook-Add-ins nach Setup\Addin kopieren.
+if not exist "..\Resources\AddIn\taskpane.html" (
+  echo FEHLER: ..\Resources\AddIn\taskpane.html fehlt.
+  echo Bitte zuerst den Production-Build des Outlook-Add-ins nach Resources\AddIn kopieren.
   pause
   exit /b 4
 )
 
-if not exist "Addin\manifest.xml" (
-  echo FEHLER: Setup\Addin\manifest.xml fehlt.
-  echo Bitte den kompletten Inhalt von MailNotes\docs nach Setup\Addin kopieren.
+if not exist "..\Resources\AddIn\manifest.xml" (
+  echo FEHLER: ..\Resources\AddIn\manifest.xml fehlt.
+  echo Bitte zuerst den kompletten Production-Build des Outlook-Add-ins nach Resources\AddIn kopieren.
   pause
   exit /b 7
 )

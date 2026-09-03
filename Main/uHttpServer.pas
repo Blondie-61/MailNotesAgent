@@ -53,6 +53,8 @@ type
     procedure HandlePing(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleVersion(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleStats(AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleDatabasePathGet(AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleDatabasePath(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleNotFound(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleNote(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleSave(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
@@ -86,6 +88,7 @@ type
 
     procedure Start;
     procedure Stop;
+    function ChangeDatabasePath(const APath: string; out AMode: string): string;
   end;
 
 implementation
@@ -187,6 +190,19 @@ begin
     FServer.Active := False;
 end;
 
+function THttpServer.ChangeDatabasePath(
+  const APath: string;
+  out AMode: string
+): string;
+begin
+  TMonitor.Enter(FDatabaseLock);
+  try
+    Result := FDatabase.ChangeDatabasePath(APath, AMode);
+  finally
+    TMonitor.Exit(FDatabaseLock);
+  end;
+end;
+
 {$IF Defined(MSWINDOWS) or Defined(MACOS)}
 procedure THttpServer.HandleQuerySSLPort(APort: Word; var VUseSSL: Boolean);
 begin
@@ -233,6 +249,8 @@ begin
         HandleRepairQueueAdd(ARequestInfo, AResponseInfo)
       else if SameText(ARequestInfo.Document, '/repairqueue/status') then
         HandleRepairQueueStatus(ARequestInfo, AResponseInfo)
+      else if SameText(ARequestInfo.Document, '/database/path') then
+        HandleDatabasePath(ARequestInfo, AResponseInfo)
       else
         HandleNotFound(AResponseInfo);
       Exit;
@@ -341,6 +359,8 @@ begin
     HandleVersion(AResponseInfo)
   else if SameText(ARequestInfo.Document, '/stats') then
     HandleStats(AResponseInfo)
+  else if SameText(ARequestInfo.Document, '/database/path') then
+    HandleDatabasePathGet(AResponseInfo)
   else if SameText(ARequestInfo.Document, '/note') then
     HandleNote(ARequestInfo, AResponseInfo)
   else if SameText(ARequestInfo.Document, '/resolve') then
@@ -396,6 +416,53 @@ begin
     '"databasePath":"' + JsonEscape(TAppPaths.DatabaseFile) + '"' +
     '}'
   );
+end;
+
+
+procedure THttpServer.HandleDatabasePathGet(AResponseInfo: TIdHTTPResponseInfo);
+begin
+  SendJson(
+    AResponseInfo,
+    '{"databasePath":"' + JsonEscape(TAppPaths.DatabaseFile) + '"}'
+  );
+end;
+
+
+procedure THttpServer.HandleDatabasePath(
+  ARequestInfo: TIdHTTPRequestInfo;
+  AResponseInfo: TIdHTTPResponseInfo
+);
+var
+  RequestedPath: string;
+  NewPath: string;
+  Mode: string;
+begin
+  RequestedPath := Trim(ARequestInfo.Params.Values['path']);
+  if RequestedPath = '' then
+  begin
+    SendJson(AResponseInfo, '{"error":"missing_path"}', 400);
+    Exit;
+  end;
+
+  try
+    NewPath := FDatabase.ChangeDatabasePath(RequestedPath, Mode);
+    SendJson(
+      AResponseInfo,
+      '{' +
+      '"ok":true,' +
+      '"mode":"' + JsonEscape(Mode) + '",' +
+      '"databasePath":"' + JsonEscape(NewPath) + '"' +
+      '}'
+    );
+  except
+    on E: Exception do
+      SendJson(
+        AResponseInfo,
+        '{"error":"database_path_change_failed","message":"' +
+        JsonEscape(E.Message) + '"}',
+        400
+      );
+  end;
 end;
 
 procedure THttpServer.HandleStats(AResponseInfo: TIdHTTPResponseInfo);

@@ -2,7 +2,7 @@
 ; Erstellt mit Inno Setup 6
 
 #define MyAppName "MailNotes Agent"
-#define MyAppVersion "1.0.0.4"
+#define MyAppVersion "1.0.0.5"
 #define MySetupVersion "0.2"
 #define MyAppPublisher "MailNotes"
 #define MyAppExeName "MailNotesAgent.exe"
@@ -47,7 +47,7 @@ Name: "addinsetup"; Description: "Outlook-Add-in jetzt einrichten (manifest.xml)
 [Files]
 Source: "..\Main\Win64\Release\MailNotesAgent.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\Data\MailNotes.sqlite"; DestDir: "{app}\Data"; Flags: ignoreversion
-Source: "Addin\*"; DestDir: "{autopf}\MailNotes\Addin"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\Resources\AddIn\*"; DestDir: "{autopf}\MailNotes\Addin"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "OpenSSL\*"; DestDir: "{app}"; Flags: ignoreversion
 Source: "CreateLocalCertificate.ps1"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "RemoveLocalCertificate.ps1"; DestDir: "{app}\Tools"; Flags: ignoreversion
@@ -244,10 +244,107 @@ begin
     );
 end;
 
+function ResolveInteractiveUserDataDirectory: string;
+var
+  ResultCode: Integer;
+  ScriptFile: string;
+  ResultFile: string;
+  ScriptText: string;
+  FileContents: AnsiString;
+begin
+  Result := '';
+  ScriptFile := ExpandConstant('{tmp}\MailNotes-ResolveDataPath.ps1');
+  ResultFile := ExpandConstant('{tmp}\MailNotes-DataPath.txt');
+  DeleteFile(ScriptFile);
+  DeleteFile(ResultFile);
+
+  ScriptText :=
+    '$u = (Get-CimInstance Win32_ComputerSystem).UserName' + #13#10 +
+    'if ($u) {' + #13#10 +
+    '  $sid = (New-Object System.Security.Principal.NTAccount($u)).Translate([System.Security.Principal.SecurityIdentifier]).Value' + #13#10 +
+    '  $profile = Get-CimInstance Win32_UserProfile | Where-Object { $_.SID -eq $sid } | Select-Object -First 1' + #13#10 +
+    '  if ($profile -and $profile.LocalPath) {' + #13#10 +
+    '    $path = Join-Path $profile.LocalPath ''AppData\Local\MailNotes''' + #13#10 +
+    '    [System.IO.File]::WriteAllText(''' + ResultFile + ''', $path)' + #13#10 +
+    '  }' + #13#10 +
+    '}';
+
+  if not SaveStringToFile(ScriptFile, ScriptText, False) then
+    Exit;
+
+  if Exec(
+       ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+       '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + ScriptFile + '"',
+       '',
+       SW_HIDE,
+       ewWaitUntilTerminated,
+       ResultCode
+     ) and (ResultCode = 0) and FileExists(ResultFile) then
+  begin
+    if LoadStringFromFile(ResultFile, FileContents) then
+      Result := Trim(FileContents);
+  end;
+
+  DeleteFile(ScriptFile);
+  DeleteFile(ResultFile);
+end;
+
+procedure SaveMailNotesDataDirectory;
+var
+  DataDirectory: string;
+begin
+  DataDirectory := ResolveInteractiveUserDataDirectory;
+  if DataDirectory <> '' then
+  begin
+    RegWriteStringValue(HKEY_LOCAL_MACHINE, 'Software\MailNotes', 'DataPath', DataDirectory);
+    Log('MailNotes-Datenverzeichnis gespeichert: ' + DataDirectory);
+  end
+  else
+    Log('MailNotes-Datenverzeichnis konnte nicht ermittelt werden.');
+end;
+
+function LoadMailNotesDataDirectory: string;
+begin
+  Result := '';
+  RegQueryStringValue(HKEY_LOCAL_MACHINE, 'Software\MailNotes', 'DataPath', Result);
+  if Result = '' then
+    Result := ResolveInteractiveUserDataDirectory;
+end;
+
+
+function LoadConfiguredDatabaseFile(const DataDirectory: string): string;
+var
+  ConfigFile: string;
+begin
+  Result := '';
+  if DataDirectory = '' then
+    Exit;
+
+  ConfigFile := AddBackslash(DataDirectory) + 'mailnotes.ini';
+  if FileExists(ConfigFile) then
+    Result := Trim(GetIniString('Database', 'Path', '', ConfigFile));
+
+  if Result = '' then
+    Result := AddBackslash(DataDirectory) + 'MailNotes.sqlite';
+end;
+
+procedure DeleteDatabaseFiles(const DatabaseFile: string);
+begin
+  if DatabaseFile = '' then
+    Exit;
+
+  DeleteFile(DatabaseFile);
+  DeleteFile(DatabaseFile + '-wal');
+  DeleteFile(DatabaseFile + '-shm');
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
+  begin
     CreateLocalCertificate;
+    SaveMailNotesDataDirectory;
+  end;
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
@@ -289,42 +386,108 @@ begin
   end;
 end;
 
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   DataDirectory: string;
+  DatabaseFile: string;
+  AddinDirectory: string;
+  ProgramDirectory: string;
+  TlsDirectory: string;
+  CommonMailNotesDirectory: string;
+  RemoveCertificateScript: string;
   ResultCode: Integer;
 begin
-  if CurUninstallStep = usUninstall then
+if CurUninstallStep = usUninstall then
   begin
     StopAgent;
 
-    DataDirectory := ExpandConstant('{localappdata}\MailNotes');
+    // Für usPostUninstall sichern, weil das Tools-Verzeichnis bis dahin bereits entfernt wird.
+    RemoveCertificateScript := ExpandConstant('{tmp}\RemoveLocalCertificate.ps1');
+    if FileExists(ExpandConstant('{app}\Tools\RemoveLocalCertificate.ps1')) then
+      FileCopy(
+        ExpandConstant('{app}\Tools\RemoveLocalCertificate.ps1'),
+        RemoveCertificateScript,
+        False
+      );
+
+    DataDirectory := LoadMailNotesDataDirectory;
+    DatabaseFile := LoadConfiguredDatabaseFile(DataDirectory);
 
     if MsgBox(
          'Sollen auch die persönlichen MailNotes-Daten gelöscht werden?' + #13#10 + #13#10 +
-         'Dazu gehören insbesondere alle Notizen und die lokale Datenbank.' + #13#10 +
+         'Dazu gehören insbesondere alle Notizen und die lokale Datenbank:' + #13#10 +
+         DatabaseFile + #13#10 + #13#10 +
+         'Auch eine Datenbank außerhalb des MailNotes-Datenordners wird dann gelöscht.' + #13#10 +
          'Die sichere Standardauswahl ist „Nein“.',
          mbConfirmation,
          MB_YESNO or MB_DEFBUTTON2
        ) = IDYES then
     begin
-      if DirExists(DataDirectory) then
-        DelTree(DataDirectory, True, True, True);
+      if DataDirectory = '' then
+        MsgBox(
+          'Das MailNotes-Datenverzeichnis konnte nicht ermittelt werden. Die persönlichen Daten wurden nicht gelöscht.',
+          mbError,
+          MB_OK
+        )
+      else if DirExists(DataDirectory) then
+      begin
+        // Eine frei gewählte Datenbank kann außerhalb des Standard-Datenordners liegen.
+        // Sie wird nur nach der ausdrücklichen Ja-Antwort oben entfernt.
+        DeleteDatabaseFiles(DatabaseFile);
+
+        if not DelTree(DataDirectory, True, True, True) then
+          MsgBox(
+            'Das MailNotes-Datenverzeichnis konnte nicht vollständig gelöscht werden:' + #13#10 +
+            DataDirectory,
+            mbError,
+            MB_OK
+          );
+      end;
     end;
+
+    // Das Add-in liegt außerhalb des Agent-Verzeichnisses und muss deshalb explizit entfernt werden.
+    AddinDirectory := ExpandConstant('{autopf}\MailNotes\Addin');
+    if DirExists(AddinDirectory) then
+      DelTree(AddinDirectory, True, True, True);
   end;
 
   if CurUninstallStep = usPostUninstall then
   begin
-    Exec(
-      ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
-      '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""' +
-      ExpandConstant('{app}\Tools\RemoveLocalCertificate.ps1') +
-      '"" -OutputDir ""' +
-      ExpandConstant('{commonappdata}\MailNotes\TLS') + '""',
-      '',
-      SW_HIDE,
-      ewWaitUntilTerminated,
-      ResultCode
-    );
+    // Das Zertifikatsskript liegt im Agent-Verzeichnis und wäre nach dem regulären
+    // Uninstall bereits gelöscht. Deshalb wurde es vorher in das Temp-Verzeichnis kopiert.
+    RemoveCertificateScript := ExpandConstant('{tmp}\RemoveLocalCertificate.ps1');
+
+    if FileExists(RemoveCertificateScript) then
+    begin
+      Exec(
+        ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+        '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+        RemoveCertificateScript +
+        '" -OutputDir "' +
+        ExpandConstant('{commonappdata}\MailNotes\TLS') + '"',
+        '',
+        SW_HIDE,
+        ewWaitUntilTerminated,
+        ResultCode
+      );
+      DeleteFile(RemoveCertificateScript);
+    end;
+
+    TlsDirectory := ExpandConstant('{commonappdata}\MailNotes\TLS');
+    if DirExists(TlsDirectory) then
+      DelTree(TlsDirectory, True, True, True);
+
+    CommonMailNotesDirectory := ExpandConstant('{commonappdata}\MailNotes');
+    RemoveDir(CommonMailNotesDirectory);
+
+    // Verwaiste Installationsverzeichnisse entfernen. Persönliche Daten bleiben
+    // unberührt, wenn der Benutzer bei der Abfrage "Nein" gewählt hat.
+    ProgramDirectory := ExpandConstant('{autopf}\MailNotes');
+    if DirExists(ExpandConstant('{app}')) then
+      DelTree(ExpandConstant('{app}'), True, True, True);
+    RemoveDir(ProgramDirectory);
+
+    RegDeleteValue(HKEY_LOCAL_MACHINE, 'Software\MailNotes', 'DataPath');
   end;
 end;

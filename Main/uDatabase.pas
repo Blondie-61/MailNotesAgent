@@ -56,6 +56,7 @@ type
 
     procedure Open;
     procedure Close;
+    function ChangeDatabasePath(const APath: string; out AMode: string): string;
 
     procedure Save(Note: TNote);
     procedure RefreshMailIdentity(Note: TNote);
@@ -179,6 +180,100 @@ begin
   EnsureSchema;
 end;
 
+
+
+function TDatabase.ChangeDatabasePath(const APath: string; out AMode: string): string;
+var
+  OldFile: string;
+  TargetFile: string;
+  TargetDirectory: string;
+  CreatedTarget: Boolean;
+begin
+  OldFile := TPath.GetFullPath(FConnection.Params.Database);
+  TargetFile := Trim(APath);
+
+  if TargetFile = '' then
+    raise Exception.Create('Es wurde kein Datenbankpfad angegeben.');
+
+  // Komfort: Es darf entweder ein Ordner oder eine konkrete .sqlite-Datei
+  // angegeben werden. Bei einem Ordner verwenden wir MailNotes.sqlite.
+  if TDirectory.Exists(TargetFile) or
+     ((TPath.GetExtension(TargetFile) = '') and not TFile.Exists(TargetFile)) then
+    TargetFile := TPath.Combine(TargetFile, 'MailNotes.sqlite');
+
+  TargetFile := TPath.GetFullPath(TargetFile);
+  if SameText(TargetFile, OldFile) then
+  begin
+    AMode := 'unchanged';
+    Exit(OldFile);
+  end;
+
+  TargetDirectory := ExtractFilePath(TargetFile);
+  if TargetDirectory = '' then
+    raise Exception.Create('Der Zielordner konnte nicht ermittelt werden.');
+
+  CreatedTarget := False;
+  try
+    // Vor dem Kopieren die SQLite-Datei in einen konsistenten Zustand bringen.
+    if FConnection.Connected then
+    begin
+      try
+        FConnection.ExecSQL('PRAGMA wal_checkpoint(TRUNCATE)');
+      except
+        // Nicht jede DB verwendet WAL; das darf den Umzug nicht verhindern.
+      end;
+      FConnection.Close;
+    end;
+
+    TDirectory.CreateDirectory(TargetDirectory);
+
+    if TFile.Exists(TargetFile) then
+      AMode := 'adopted'
+    else
+    begin
+      TFile.Copy(OldFile, TargetFile, False);
+      CreatedTarget := True;
+      AMode := 'moved';
+    end;
+
+    // Ziel zuerst wirklich öffnen und prüfen. Erst danach wird die Konfiguration
+    // umgestellt. So bleibt bei einer falschen/defekten Datei die alte DB aktiv.
+    FConnection.Params.Database := TargetFile;
+    FConnection.Connected := True;
+    FConnection.ExecSQL('PRAGMA foreign_keys = ON');
+    EnsureSchema;
+
+    TAppPaths.SetDatabaseFile(TargetFile);
+    Result := TargetFile;
+  except
+    on E: Exception do
+    begin
+      try
+        if FConnection.Connected then
+          FConnection.Close;
+        FConnection.Params.Database := OldFile;
+        FConnection.Connected := True;
+        FConnection.ExecSQL('PRAGMA foreign_keys = ON');
+        EnsureSchema;
+      except
+        // Die ursprüngliche Fehlermeldung ist für den Benutzer wichtiger.
+      end;
+
+      if CreatedTarget and TFile.Exists(TargetFile) then
+      begin
+        try
+          TFile.Delete(TargetFile);
+        except
+        end;
+      end;
+
+      raise Exception.CreateFmt(
+        'Datenbankpfad konnte nicht geändert werden: %s',
+        [E.Message]
+      );
+    end;
+  end;
+end;
 
 procedure TDatabase.EnsureSchema;
 begin
@@ -854,10 +949,12 @@ begin
         begin
           Ch := Content[ScanPos];
 
-          // Erlaubt sind Buchstaben, Leerzeichen/Tab, Bindestrich
+          // Erlaubt sind Buchstaben, normale Leerzeichen, Bindestrich
           // sowie gerade und typografische Apostrophe.
+          // TAB (#9) beendet einen Personentag explizit. Im Editor wird
+          // TAB optisch wie ein einzelnes Leerzeichen dargestellt.
           if TCharacter.IsLetter(Ch) or
-             (Ch = ' ') or (Ch = #9) or
+             (Ch = ' ') or
              (Ch = '-') or (Ch = #39) or (Ch = #$2019) then
           begin
             Inc(ScanPos);

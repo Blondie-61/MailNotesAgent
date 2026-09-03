@@ -101,7 +101,11 @@ begin
       HttpServer := THttpServer.Create(Database);
       HttpServer.Start;
 
+{$IF Defined(MSWINDOWS) or Defined(MACOS)}
+      TrayIcon := TTrayIcon.Create(HttpServer);
+{$ELSE}
       TrayIcon := TTrayIcon.Create;
+{$ENDIF}
       TrayIcon.SetState(tsOK);
       TrayIcon.Run;
     except
