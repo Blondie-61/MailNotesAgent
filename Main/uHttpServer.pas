@@ -55,6 +55,7 @@ type
     procedure HandleStats(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleDatabasePathGet(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleDatabasePath(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleDatabaseBackup(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleNotFound(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleNote(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleSave(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
@@ -89,6 +90,7 @@ type
     procedure Start;
     procedure Stop;
     function ChangeDatabasePath(const APath: string; out AMode: string): string;
+    function CreateDatabaseBackup(const ADestinationDirectory: string; const ARetentionCount: Integer = 10): string;
   end;
 
 implementation
@@ -203,6 +205,20 @@ begin
   end;
 end;
 
+function THttpServer.CreateDatabaseBackup(
+  const ADestinationDirectory: string;
+  const ARetentionCount: Integer
+): string;
+begin
+  TMonitor.Enter(FDatabaseLock);
+  try
+    Result := FDatabase.CreateBackup(ADestinationDirectory, ARetentionCount);
+    TAppPaths.SetLastSuccessfulBackup(Result);
+  finally
+    TMonitor.Exit(FDatabaseLock);
+  end;
+end;
+
 {$IF Defined(MSWINDOWS) or Defined(MACOS)}
 procedure THttpServer.HandleQuerySSLPort(APort: Word; var VUseSSL: Boolean);
 begin
@@ -251,6 +267,8 @@ begin
         HandleRepairQueueStatus(ARequestInfo, AResponseInfo)
       else if SameText(ARequestInfo.Document, '/database/path') then
         HandleDatabasePath(ARequestInfo, AResponseInfo)
+      else if SameText(ARequestInfo.Document, '/database/backup') then
+        HandleDatabaseBackup(ARequestInfo, AResponseInfo)
       else
         HandleNotFound(AResponseInfo);
       Exit;
@@ -486,6 +504,43 @@ begin
     '"version":"' + JsonEscape(TAppInfo.Version) + '"' +
     '}'
   );
+end;
+
+procedure THttpServer.HandleDatabaseBackup(
+  ARequestInfo: TIdHTTPRequestInfo;
+  AResponseInfo: TIdHTTPResponseInfo
+);
+var
+  DestinationDirectory: string;
+  BackupFile: string;
+begin
+  DestinationDirectory := Trim(ARequestInfo.Params.Values['path']);
+
+  if DestinationDirectory = '' then
+  begin
+    SendJson(
+      AResponseInfo,
+      '{"ok":false,"message":"Backup-Zielordner fehlt."}',
+      400
+    );
+    Exit;
+  end;
+
+  try
+    BackupFile := FDatabase.CreateBackup(DestinationDirectory);
+    TAppPaths.SetLastSuccessfulBackup(BackupFile);
+    SendJson(
+      AResponseInfo,
+      '{"ok":true,"backupPath":"' + JsonEscape(BackupFile) + '"}'
+    );
+  except
+    on E: Exception do
+      SendJson(
+        AResponseInfo,
+        '{"ok":false,"message":"' + JsonEscape(E.Message) + '"}',
+        500
+      );
+  end;
 end;
 
 procedure THttpServer.HandleNotFound(AResponseInfo: TIdHTTPResponseInfo);

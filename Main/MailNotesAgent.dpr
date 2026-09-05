@@ -31,6 +31,7 @@ uses
   uLinkBuffer in 'uLinkBuffer.pas',
   uRepairQueue in 'uRepairQueue.pas',
   uHttpServer in 'uHttpServer.pas',
+  uBackupScheduler in 'uBackupScheduler.pas',
   uSingleInstance in 'uSingleInstance.pas',
   uTrayIconResources in 'uTrayIconResources.pas',
   uStatusLogo in 'uStatusLogo.pas',

@@ -18,6 +18,10 @@ type
     class function DatabaseFile: string; static;
     class function ConfigFile: string; static;
     class procedure SetDatabaseFile(const AFileName: string); static;
+    class function BackupDirectory: string; static;
+    class procedure SetBackupDirectory(const ADirectory: string); static;
+    class function LastSuccessfulBackup: string; static;
+    class procedure SetLastSuccessfulBackup(const AFileName: string); static;
     class function LogFile: string; static;
     class function TlsDirectory: string; static;
     class function TlsCertificateFile: string; static;
@@ -126,6 +130,76 @@ begin
       Ini.DeleteKey('Database', 'Path')
     else
       Ini.WriteString('Database', 'Path', TPath.GetFullPath(NormalizedPath));
+    Ini.UpdateFile;
+  finally
+    Ini.Free;
+  end;
+end;
+
+class function TAppPaths.BackupDirectory: string;
+var
+  Ini: TIniFile;
+begin
+  Result := '';
+
+  if not TFile.Exists(ConfigFile) then
+    Exit;
+
+  Ini := TIniFile.Create(ConfigFile);
+  try
+    Result := Trim(Ini.ReadString('Backup', 'Directory', ''));
+  finally
+    Ini.Free;
+  end;
+end;
+
+class procedure TAppPaths.SetBackupDirectory(const ADirectory: string);
+var
+  Ini: TIniFile;
+  NormalizedPath: string;
+begin
+  EnsureDataDirectory;
+  NormalizedPath := Trim(ADirectory);
+  if NormalizedPath <> '' then
+    NormalizedPath := TPath.GetFullPath(NormalizedPath);
+
+  Ini := TIniFile.Create(ConfigFile);
+  try
+    if NormalizedPath = '' then
+      Ini.DeleteKey('Backup', 'Directory')
+    else
+      Ini.WriteString('Backup', 'Directory', NormalizedPath);
+    Ini.UpdateFile;
+  finally
+    Ini.Free;
+  end;
+end;
+
+class function TAppPaths.LastSuccessfulBackup: string;
+var
+  Ini: TIniFile;
+begin
+  Result := '';
+
+  if not TFile.Exists(ConfigFile) then
+    Exit;
+
+  Ini := TIniFile.Create(ConfigFile);
+  try
+    Result := Trim(Ini.ReadString('Backup', 'LastSuccessful', ''));
+  finally
+    Ini.Free;
+  end;
+end;
+
+class procedure TAppPaths.SetLastSuccessfulBackup(const AFileName: string);
+var
+  Ini: TIniFile;
+begin
+  EnsureDataDirectory;
+  Ini := TIniFile.Create(ConfigFile);
+  try
+    Ini.WriteString('Backup', 'LastSuccessful', Trim(AFileName));
     Ini.UpdateFile;
   finally
     Ini.Free;

@@ -7,7 +7,8 @@ uses
   Winapi.Windows,
   Winapi.Messages,
   uUpdater,
-  uHttpServer;
+  uHttpServer,
+  uBackupScheduler;
 
 function SetMenuDefaultItem(
   hMenu: HMENU;
@@ -21,7 +22,8 @@ uses
   Macapi.CocoaTypes,
   Macapi.Foundation,
   Macapi.ObjectiveC,
-  uHttpServer;
+  uHttpServer,
+  uBackupScheduler;
 {$ENDIF}
 
 type
@@ -31,7 +33,15 @@ type
     procedure showAgentInfo; cdecl;
     procedure revealAgentInFinder; cdecl;
     procedure revealDatabaseInFinder; cdecl;
+    procedure revealConfigInFinder; cdecl;
+    procedure revealBackupDirectoryInFinder; cdecl;
     procedure changeDatabasePath; cdecl;
+    procedure createDatabaseBackup; cdecl;
+    procedure changeBackupDirectory; cdecl;
+    procedure autoBackupInterval1; cdecl;
+    procedure autoBackupInterval2; cdecl;
+    procedure autoBackupInterval3; cdecl;
+    procedure autoBackupOff; cdecl;
   end;
 
   TTrayIcon = class;
@@ -46,7 +56,15 @@ type
     procedure showAgentInfo; cdecl;
     procedure revealAgentInFinder; cdecl;
     procedure revealDatabaseInFinder; cdecl;
+    procedure revealConfigInFinder; cdecl;
+    procedure revealBackupDirectoryInFinder; cdecl;
     procedure changeDatabasePath; cdecl;
+    procedure createDatabaseBackup; cdecl;
+    procedure changeBackupDirectory; cdecl;
+    procedure autoBackupInterval1; cdecl;
+    procedure autoBackupInterval2; cdecl;
+    procedure autoBackupInterval3; cdecl;
+    procedure autoBackupOff; cdecl;
   end;
 {$ENDIF}
 
@@ -73,6 +91,8 @@ type
     FDownloadedVersion: string;
     FUpdatePromptedVersion: string;
     FHttpServer: THttpServer;
+    FBackupScheduler: TBackupScheduler;
+    FBackupAutoMenu: HMENU;
 
     procedure WindowMessage(var Message: TMessage);
     procedure CreateTrayMenu;
@@ -91,6 +111,11 @@ type
     procedure OpenDataDirectory;
     procedure OpenLogFile;
     procedure ChangeDatabasePath;
+    procedure CreateDatabaseBackup;
+    procedure ChangeBackupDirectory;
+    procedure SetAutoBackupIntervalByIndex(const AIndex: Integer);
+    procedure UpdateAutoBackupMenu;
+    function SelectBackupDirectory(out ADirectory: string): Boolean;
     function DisplayState: TTrayState;
     function IconResourceID: Integer;
     function StatusText: string;
@@ -103,6 +128,13 @@ type
     FInfoWindow: NSWindow;
     FHttpServer: THttpServer;
     FDatabaseLink: NSButton;
+    FBackupDirectoryLink: NSButton;
+    FLastBackupLabel: NSTextField;
+    FBackupMenuItem: NSMenuItem;
+    FBackupScheduler: TBackupScheduler;
+    FBackupAutoMenu: NSMenu;
+    FBackupIntervalMenuItems: array[0..MAX_BACKUP_INTERVALS - 1] of NSMenuItem;
+    FBackupOffMenuItem: NSMenuItem;
 
     procedure CreateStatusItem;
     procedure DestroyStatusItem;
@@ -111,7 +143,14 @@ type
     procedure ShowAgentInfo;
     procedure RevealAgentInFinder;
     procedure RevealDatabaseInFinder;
+    procedure RevealConfigInFinder;
     procedure ChangeDatabasePath;
+    procedure CreateDatabaseBackup;
+    procedure ChangeBackupDirectory;
+    procedure SetAutoBackupIntervalByIndex(const AIndex: Integer);
+    procedure UpdateAutoBackupMenu;
+    function SelectBackupDirectory(out ADirectory: string): Boolean;
+    procedure RevealBackupDirectoryInFinder;
     procedure ShowMacMessage(const AMessage, ADetails: string);
     function IconFileName: string;
     function StatusText: string;
@@ -139,6 +178,7 @@ uses
   uAppPaths
 {$IF Defined(MSWINDOWS)}
   , Winapi.ShellAPI,
+  Winapi.ShlObj,
   Winapi.CommDlg,
   System.Classes,
   uTrayIconResources,
@@ -166,7 +206,13 @@ const
   MENU_OPEN_DATA = 1003;
   MENU_OPEN_LOG = 1004;
   MENU_CHANGE_DATABASE = 1005;
-  MENU_EXIT = 1006;
+  MENU_BACKUP_DATABASE = 1006;
+  MENU_CHANGE_BACKUP_DIRECTORY = 1007;
+  MENU_BACKUP_INTERVAL_1 = 1008;
+  MENU_BACKUP_INTERVAL_2 = 1009;
+  MENU_BACKUP_INTERVAL_3 = 1010;
+  MENU_BACKUP_AUTO_OFF = 1011;
+  MENU_EXIT = 1012;
 
 type
   TAutomaticUpdateResult = record
@@ -181,6 +227,8 @@ begin
   inherited Create;
 
   FHttpServer := AHttpServer;
+  FBackupScheduler := nil;
+  FBackupAutoMenu := 0;
   FState := tsOK;
   FUpdateAvailable := False;
   FLatestVersion := '';
@@ -192,6 +240,7 @@ begin
   FWindowHandle := AllocateHWnd(WindowMessage);
   CreateTrayMenu;
   AddTrayIcon;
+  FBackupScheduler := TBackupScheduler.Create(FHttpServer);
 
   // Die erste Prüfung erfolgt bewusst leicht verzögert, damit der Agent
   // vollständig gestartet ist. Danach wird einmal täglich erneut geprüft.
@@ -201,6 +250,14 @@ end;
 
 destructor TTrayIcon.Destroy;
 begin
+  if FBackupScheduler <> nil then
+  begin
+    FBackupScheduler.Stop;
+    FBackupScheduler.BackupOnExit;
+    FBackupScheduler.Free;
+    FBackupScheduler := nil;
+  end;
+
   if FWindowHandle <> 0 then
     KillTimer(FWindowHandle, TIMER_AUTO_UPDATE);
 
@@ -319,6 +376,16 @@ begin
   AppendMenu(FPopupMenu, MF_STRING, MENU_OPEN_LOG, 'Logdatei öffnen');
   AppendMenu(FPopupMenu, MF_STRING, MENU_CHANGE_DATABASE, 'Datenbankpfad ändern...');
   AppendMenu(FPopupMenu, MF_SEPARATOR, 0, nil);
+  AppendMenu(FPopupMenu, MF_STRING, MENU_BACKUP_DATABASE, 'Datenbank sichern ...');
+  AppendMenu(FPopupMenu, MF_STRING, MENU_CHANGE_BACKUP_DIRECTORY, 'Backup-Ziel ändern ...');
+
+  FBackupAutoMenu := CreatePopupMenu;
+  if FBackupAutoMenu = 0 then
+    RaiseLastOSError;
+  AppendMenu(FPopupMenu, MF_POPUP, NativeUInt(FBackupAutoMenu), 'Automatisches Backup');
+  UpdateAutoBackupMenu;
+
+  AppendMenu(FPopupMenu, MF_SEPARATOR, 0, nil);
   AppendMenu(FPopupMenu, MF_STRING, MENU_EXIT, 'MailNotes Agent beenden');
 end;
 
@@ -383,6 +450,7 @@ var
   NewIcon: HICON;
   OldIcon: HICON;
   NotifyData: TNotifyIconData;
+  BackupDirectory: string;
 begin
   NewIcon := CreateMailNotesIcon(IconResourceID);
 
@@ -420,6 +488,18 @@ begin
     MENU_STATUS,
     PChar(StatusText)
   );
+
+  BackupDirectory := TAppPaths.BackupDirectory;
+  if (BackupDirectory <> '') and TDirectory.Exists(BackupDirectory) then
+    ModifyMenu(
+      FPopupMenu, MENU_BACKUP_DATABASE, MF_BYCOMMAND or MF_STRING,
+      MENU_BACKUP_DATABASE, 'Datenbank sichern'
+    )
+  else
+    ModifyMenu(
+      FPopupMenu, MENU_BACKUP_DATABASE, MF_BYCOMMAND or MF_STRING,
+      MENU_BACKUP_DATABASE, 'Datenbank sichern ...'
+    );
 
   UpdateUpdateMenu;
 end;
@@ -464,6 +544,27 @@ begin
     MENU_CHANGE_DATABASE:
       ChangeDatabasePath;
 
+    MENU_BACKUP_DATABASE:
+      CreateDatabaseBackup;
+
+    MENU_CHANGE_BACKUP_DIRECTORY:
+      ChangeBackupDirectory;
+
+    MENU_BACKUP_INTERVAL_1:
+      SetAutoBackupIntervalByIndex(0);
+
+    MENU_BACKUP_INTERVAL_2:
+      SetAutoBackupIntervalByIndex(1);
+
+    MENU_BACKUP_INTERVAL_3:
+      SetAutoBackupIntervalByIndex(2);
+
+    MENU_BACKUP_AUTO_OFF:
+      begin
+        TBackupSettings.SetSelectedIntervalHours(0);
+        UpdateAutoBackupMenu;
+      end;
+
     MENU_EXIT:
       begin
         RemoveTrayIcon;
@@ -472,6 +573,123 @@ begin
   end;
 end;
 
+
+procedure TTrayIcon.SetAutoBackupIntervalByIndex(const AIndex: Integer);
+var
+  Intervals: TBackupIntervals;
+  Count: Integer;
+begin
+  Count := TBackupSettings.LoadIntervals(Intervals);
+  if (AIndex < 0) or (AIndex >= Count) then
+    Exit;
+  TBackupSettings.SetSelectedIntervalHours(Intervals[AIndex]);
+  UpdateAutoBackupMenu;
+end;
+
+procedure TTrayIcon.UpdateAutoBackupMenu;
+const
+  MenuIDs: array[0..MAX_BACKUP_INTERVALS - 1] of NativeUInt = (
+    MENU_BACKUP_INTERVAL_1,
+    MENU_BACKUP_INTERVAL_2,
+    MENU_BACKUP_INTERVAL_3
+  );
+var
+  Intervals: TBackupIntervals;
+  Count, I, Selected: Integer;
+  Flags: UINT;
+begin
+  if FBackupAutoMenu = 0 then
+    Exit;
+
+  while GetMenuItemCount(FBackupAutoMenu) > 0 do
+    DeleteMenu(FBackupAutoMenu, 0, MF_BYPOSITION);
+
+  Count := TBackupSettings.LoadIntervals(Intervals);
+  Selected := TBackupSettings.SelectedIntervalHours;
+  for I := 0 to Count - 1 do
+  begin
+    Flags := MF_STRING;
+    if Selected = Intervals[I] then
+      Flags := Flags or MF_CHECKED;
+    AppendMenu(FBackupAutoMenu, Flags, MenuIDs[I],
+      PChar(TBackupSettings.IntervalCaption(Intervals[I])));
+  end;
+  AppendMenu(FBackupAutoMenu, MF_SEPARATOR, 0, nil);
+  Flags := MF_STRING;
+  if Selected = 0 then
+    Flags := Flags or MF_CHECKED;
+  AppendMenu(FBackupAutoMenu, Flags, MENU_BACKUP_AUTO_OFF, 'Aus');
+end;
+
+function TTrayIcon.SelectBackupDirectory(out ADirectory: string): Boolean;
+var
+  BrowseInfo: TBrowseInfoW;
+  ItemIDList: PItemIDList;
+  PathBuffer: array[0..MAX_PATH] of WideChar;
+begin
+  Result := False;
+  ADirectory := '';
+  FillChar(BrowseInfo, SizeOf(BrowseInfo), 0);
+  FillChar(PathBuffer, SizeOf(PathBuffer), 0);
+  BrowseInfo.hwndOwner := FWindowHandle;
+  BrowseInfo.lpszTitle := 'Backup-Ziel für MailNotes auswählen';
+  BrowseInfo.ulFlags := BIF_RETURNONLYFSDIRS or BIF_NEWDIALOGSTYLE;
+
+  ItemIDList := SHBrowseForFolderW(BrowseInfo);
+  if ItemIDList = nil then
+    Exit;
+  try
+    if SHGetPathFromIDListW(ItemIDList, PathBuffer) then
+    begin
+      ADirectory := PathBuffer;
+      Result := ADirectory <> '';
+    end;
+  finally
+    CoTaskMemFree(ItemIDList);
+  end;
+end;
+
+procedure TTrayIcon.ChangeBackupDirectory;
+var
+  DirectoryName: string;
+begin
+  if not SelectBackupDirectory(DirectoryName) then
+    Exit;
+
+  TAppPaths.SetBackupDirectory(DirectoryName);
+  UpdateTrayIcon;
+  MessageBoxW(FWindowHandle, PWideChar(DirectoryName),
+    'Backup-Ziel gespeichert', MB_OK or MB_ICONINFORMATION);
+end;
+
+procedure TTrayIcon.CreateDatabaseBackup;
+var
+  DirectoryName: string;
+  BackupFile: string;
+begin
+  if FHttpServer = nil then
+    Exit;
+
+  DirectoryName := TAppPaths.BackupDirectory;
+  if (DirectoryName = '') or not TDirectory.Exists(DirectoryName) then
+  begin
+    if not SelectBackupDirectory(DirectoryName) then
+      Exit;
+    TAppPaths.SetBackupDirectory(DirectoryName);
+    UpdateTrayIcon;
+  end;
+
+  try
+    BackupFile := FHttpServer.CreateDatabaseBackup(DirectoryName);
+    MessageBoxW(FWindowHandle,
+      PWideChar('Backup erfolgreich:' + sLineBreak + sLineBreak + BackupFile),
+      'MailNotes Backup', MB_OK or MB_ICONINFORMATION);
+  except
+    on E: Exception do
+      MessageBoxW(FWindowHandle, PWideChar(E.Message), 'Backup fehlgeschlagen',
+        MB_OK or MB_ICONERROR);
+  end;
+end;
 
 procedure TTrayIcon.ChangeDatabasePath;
 const
@@ -1003,10 +1221,65 @@ begin
 end;
 
 
+procedure TMacMenuHandler.revealConfigInFinder;
+begin
+  if FOwner <> nil then
+    FOwner.RevealConfigInFinder;
+end;
+
+
+procedure TMacMenuHandler.revealBackupDirectoryInFinder;
+begin
+  if FOwner <> nil then
+    FOwner.RevealBackupDirectoryInFinder;
+end;
+
+
 procedure TMacMenuHandler.changeDatabasePath;
 begin
   if FOwner <> nil then
     FOwner.ChangeDatabasePath;
+end;
+
+
+procedure TMacMenuHandler.createDatabaseBackup;
+begin
+  if FOwner <> nil then
+    FOwner.CreateDatabaseBackup;
+end;
+
+
+procedure TMacMenuHandler.changeBackupDirectory;
+begin
+  if FOwner <> nil then
+    FOwner.ChangeBackupDirectory;
+end;
+
+procedure TMacMenuHandler.autoBackupInterval1;
+begin
+  if FOwner <> nil then
+    FOwner.SetAutoBackupIntervalByIndex(0);
+end;
+
+procedure TMacMenuHandler.autoBackupInterval2;
+begin
+  if FOwner <> nil then
+    FOwner.SetAutoBackupIntervalByIndex(1);
+end;
+
+procedure TMacMenuHandler.autoBackupInterval3;
+begin
+  if FOwner <> nil then
+    FOwner.SetAutoBackupIntervalByIndex(2);
+end;
+
+procedure TMacMenuHandler.autoBackupOff;
+begin
+  if FOwner <> nil then
+  begin
+    TBackupSettings.SetSelectedIntervalHours(0);
+    FOwner.UpdateAutoBackupMenu;
+  end;
 end;
 
 
@@ -1021,20 +1294,40 @@ begin
   FInfoWindow := nil;
   FHttpServer := AHttpServer;
   FDatabaseLink := nil;
+  FBackupDirectoryLink := nil;
+  FLastBackupLabel := nil;
+  FBackupMenuItem := nil;
+  FBackupScheduler := nil;
+  FBackupAutoMenu := nil;
+  FBackupOffMenuItem := nil;
+  FBackupIntervalMenuItems[0] := nil;
+  FBackupIntervalMenuItems[1] := nil;
+  FBackupIntervalMenuItems[2] := nil;
   FMenuHandler := TMacMenuHandler.Create(Self);
 
   CreateStatusItem;
+  FBackupScheduler := TBackupScheduler.Create(FHttpServer);
 end;
 
 
 destructor TTrayIcon.Destroy;
 begin
+  if FBackupScheduler <> nil then
+  begin
+    FBackupScheduler.Stop;
+    FBackupScheduler.BackupOnExit;
+    FBackupScheduler.Free;
+    FBackupScheduler := nil;
+  end;
+
   if FInfoWindow <> nil then
   begin
     FInfoWindow.close;
     FInfoWindow.release;
     FInfoWindow := nil;
     FDatabaseLink := nil;
+    FBackupDirectoryLink := nil;
+    FLastBackupLabel := nil;
   end;
 
   DestroyStatusItem;
@@ -1076,6 +1369,12 @@ begin
 
   if FPopupMenu <> nil then
   begin
+    FBackupMenuItem := nil;
+    FBackupAutoMenu := nil;
+    FBackupOffMenuItem := nil;
+    FBackupIntervalMenuItems[0] := nil;
+    FBackupIntervalMenuItems[1] := nil;
+    FBackupIntervalMenuItems[2] := nil;
     FPopupMenu.release;
     FPopupMenu := nil;
   end;
@@ -1093,6 +1392,9 @@ end;
 procedure TTrayIcon.CreateTrayMenu;
 var
   MenuItem: NSMenuItem;
+  AutoMenuItem: NSMenuItem;
+  BackupDirectory: string;
+  BackupCaption: string;
 begin
   FPopupMenu := TNSMenu.Wrap(
     TNSMenu.Alloc.initWithTitle(StrToNSStr('MailNotes Agent'))
@@ -1120,6 +1422,52 @@ begin
   FPopupMenu.addItem(MenuItem);
   MenuItem.release;
 
+  FPopupMenu.addItem(TNSMenuItem.Wrap(TNSMenuItem.OCClass.separatorItem));
+
+  BackupDirectory := TAppPaths.BackupDirectory;
+  if (BackupDirectory <> '') and TDirectory.Exists(BackupDirectory) then
+    BackupCaption := 'Datenbank sichern'
+  else
+    BackupCaption := 'Datenbank sichern …';
+
+  MenuItem := TNSMenuItem.Wrap(
+    TNSMenuItem.Alloc.initWithTitle(
+      StrToNSStr(BackupCaption),
+      sel_getUid('createDatabaseBackup'),
+      StrToNSStr('')
+    )
+  );
+  MenuItem.setTarget(FMenuHandler.GetObjectID);
+  FBackupMenuItem := MenuItem;
+  FPopupMenu.addItem(MenuItem);
+  MenuItem.release;
+
+  MenuItem := TNSMenuItem.Wrap(
+    TNSMenuItem.Alloc.initWithTitle(
+      StrToNSStr('Backup-Ziel ändern …'),
+      sel_getUid('changeBackupDirectory'),
+      StrToNSStr('')
+    )
+  );
+  MenuItem.setTarget(FMenuHandler.GetObjectID);
+  FPopupMenu.addItem(MenuItem);
+  MenuItem.release;
+
+  FBackupAutoMenu := TNSMenu.Wrap(TNSMenu.Alloc.initWithTitle(StrToNSStr('Automatisches Backup')));
+  AutoMenuItem := TNSMenuItem.Wrap(
+    TNSMenuItem.Alloc.initWithTitle(
+      StrToNSStr('Automatisches Backup'),
+      nil,
+      StrToNSStr('')
+    )
+  );
+  AutoMenuItem.setSubmenu(FBackupAutoMenu);
+  FPopupMenu.addItem(AutoMenuItem);
+  AutoMenuItem.release;
+  UpdateAutoBackupMenu;
+
+  FPopupMenu.addItem(TNSMenuItem.Wrap(TNSMenuItem.OCClass.separatorItem));
+
   MenuItem := TNSMenuItem.Wrap(
     TNSMenuItem.Alloc.initWithTitle(
       StrToNSStr('MailNotes Agent beenden'),
@@ -1137,6 +1485,7 @@ var
   ImagePath: string;
   NewImage: NSImage;
   StatusMenuItem: NSMenuItem;
+  BackupDirectory: string;
 begin
   ImagePath := TPath.Combine(
     TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..')),
@@ -1173,6 +1522,15 @@ begin
     StatusMenuItem := FPopupMenu.itemAtIndex(0);
     StatusMenuItem.setTitle(StrToNSStr(StatusText));
   end;
+
+  if FBackupMenuItem <> nil then
+  begin
+    BackupDirectory := TAppPaths.BackupDirectory;
+    if (BackupDirectory <> '') and TDirectory.Exists(BackupDirectory) then
+      FBackupMenuItem.setTitle(StrToNSStr('Datenbank sichern'))
+    else
+      FBackupMenuItem.setTitle(StrToNSStr('Datenbank sichern …'));
+  end;
 end;
 
 
@@ -1183,6 +1541,8 @@ var
   VersionLabel: NSTextField;
   AgentLabel: NSTextField;
   DatabaseLabel: NSTextField;
+  ConfigLabel: NSTextField;
+  ConfigPathLabel: NSButton;
   AgentLink: NSButton;
   ChangeButton: NSButton;
   App: NSApplication;
@@ -1237,7 +1597,7 @@ begin
   begin
     FInfoWindow := TNSWindow.Wrap(
       TNSWindow.Alloc.initWithContentRect(
-        MakeNSRect(0, 0, 620, 230),
+        MakeNSRect(0, 0, 620, 394),
         NSTitledWindowMask or NSClosableWindowMask,
         NSBackingStoreBuffered,
         False
@@ -1250,35 +1610,35 @@ begin
 
     ContentView := TNSView.Wrap(FInfoWindow.contentView);
 
-    CaptionLabel := NewLabel('MailNotes Agent', 24, 184, 570, 24);
+    CaptionLabel := NewLabel('MailNotes Agent', 24, 348, 570, 24);
     CaptionLabel.setFont(TNSFont.Wrap(TNSFont.OCClass.boldSystemFontOfSize(16)));
     ContentView.addSubview(CaptionLabel);
     CaptionLabel.release;
 
-    VersionLabel := NewLabel('Version: ' + TAppInfo.Version, 24, 156, 570, 20);
+    VersionLabel := NewLabel('Version: ' + TAppInfo.Version, 24, 320, 570, 20);
     ContentView.addSubview(VersionLabel);
     VersionLabel.release;
 
-    AgentLabel := NewLabel('Agent:', 24, 116, 570, 18);
+    AgentLabel := NewLabel('Agent:', 24, 280, 570, 18);
     ContentView.addSubview(AgentLabel);
     AgentLabel.release;
 
     AgentLink := NewLink(
       TAppPaths.AgentFile,
       'revealAgentInFinder',
-      20, 89, 580, 26
+      20, 253, 580, 26
     );
     ContentView.addSubview(AgentLink);
     AgentLink.release;
 
-    DatabaseLabel := NewLabel('Datenbank:', 24, 54, 570, 18);
+    DatabaseLabel := NewLabel('Datenbank:', 24, 218, 570, 18);
     ContentView.addSubview(DatabaseLabel);
     DatabaseLabel.release;
 
     FDatabaseLink := NewLink(
       TAppPaths.DatabaseFile,
       'revealDatabaseInFinder',
-      20, 27, 430, 26
+      20, 191, 430, 26
     );
     ContentView.addSubview(FDatabaseLink);
     FDatabaseLink.release;
@@ -1286,14 +1646,67 @@ begin
     ChangeButton := NewButton(
       'Pfad ändern …',
       'changeDatabasePath',
-      465, 27, 130, 26
+      465, 191, 130, 26
     );
     ContentView.addSubview(ChangeButton);
     ChangeButton.release;
+
+    ConfigLabel := NewLabel('Konfiguration:', 24, 154, 570, 18);
+    ContentView.addSubview(ConfigLabel);
+    ConfigLabel.release;
+
+    ConfigPathLabel := NewLink(
+      TAppPaths.ConfigFile,
+      'revealConfigInFinder',
+      20, 127, 580, 26
+    );
+    ContentView.addSubview(ConfigPathLabel);
+    ConfigPathLabel.release;
+
+    DatabaseLabel := NewLabel('Backup-Ziel:', 24, 90, 570, 18);
+    ContentView.addSubview(DatabaseLabel);
+    DatabaseLabel.release;
+
+    FBackupDirectoryLink := NewLink(
+      TAppPaths.BackupDirectory,
+      'revealBackupDirectoryInFinder',
+      20, 63, 430, 26
+    );
+    ContentView.addSubview(FBackupDirectoryLink);
+    FBackupDirectoryLink.release;
+
+    ChangeButton := NewButton(
+      'Ziel ändern …',
+      'changeBackupDirectory',
+      465, 63, 130, 26
+    );
+    ContentView.addSubview(ChangeButton);
+    ChangeButton.release;
+
+    FLastBackupLabel := NewLabel('', 24, 28, 570, 24);
+    ContentView.addSubview(FLastBackupLabel);
+    FLastBackupLabel.release;
   end;
 
   if FDatabaseLink <> nil then
     FDatabaseLink.setTitle(StrToNSStr(TAppPaths.DatabaseFile));
+
+  if FBackupDirectoryLink <> nil then
+  begin
+    if TAppPaths.BackupDirectory = '' then
+      FBackupDirectoryLink.setTitle(StrToNSStr('(noch nicht festgelegt)'))
+    else
+      FBackupDirectoryLink.setTitle(StrToNSStr(TAppPaths.BackupDirectory));
+  end;
+
+  if FLastBackupLabel <> nil then
+  begin
+    if TAppPaths.LastSuccessfulBackup = '' then
+      FLastBackupLabel.setStringValue(StrToNSStr('Letztes Backup: noch keines'))
+    else
+      FLastBackupLabel.setStringValue(StrToNSStr(
+        'Letztes Backup: ' + TAppPaths.LastSuccessfulBackup));
+  end;
 
   App := TNSApplication.Wrap(TNSApplication.OCClass.sharedApplication);
   App.activateIgnoringOtherApps(True);
@@ -1323,6 +1736,23 @@ begin
   if TFile.Exists(TAppPaths.DatabaseFile) then
     Workspace.selectFile(
       StrToNSStr(TAppPaths.DatabaseFile),
+      StrToNSStr('')
+    )
+  else
+    Workspace.openFile(StrToNSStr(TAppPaths.DataDirectory));
+end;
+
+
+procedure TTrayIcon.RevealConfigInFinder;
+var
+  Workspace: NSWorkspace;
+begin
+  TAppPaths.EnsureDataDirectory;
+  Workspace := TNSWorkspace.Wrap(TNSWorkspace.OCClass.sharedWorkspace);
+
+  if TFile.Exists(TAppPaths.ConfigFile) then
+    Workspace.selectFile(
+      StrToNSStr(TAppPaths.ConfigFile),
       StrToNSStr('')
     )
   else
@@ -1360,6 +1790,167 @@ begin
   end;
 end;
 
+
+procedure TTrayIcon.SetAutoBackupIntervalByIndex(const AIndex: Integer);
+var
+  Intervals: TBackupIntervals;
+  Count: Integer;
+begin
+  Count := TBackupSettings.LoadIntervals(Intervals);
+  if (AIndex < 0) or (AIndex >= Count) then
+    Exit;
+  TBackupSettings.SetSelectedIntervalHours(Intervals[AIndex]);
+  UpdateAutoBackupMenu;
+end;
+
+procedure TTrayIcon.UpdateAutoBackupMenu;
+var
+  Intervals: TBackupIntervals;
+  Count, I, Selected: Integer;
+  MenuItem: NSMenuItem;
+  Selector: SEL;
+begin
+  if FBackupAutoMenu = nil then
+    Exit;
+
+  FBackupAutoMenu.removeAllItems;
+  FBackupIntervalMenuItems[0] := nil;
+  FBackupIntervalMenuItems[1] := nil;
+  FBackupIntervalMenuItems[2] := nil;
+  FBackupOffMenuItem := nil;
+
+  Count := TBackupSettings.LoadIntervals(Intervals);
+  Selected := TBackupSettings.SelectedIntervalHours;
+  for I := 0 to Count - 1 do
+  begin
+    case I of
+      0: Selector := sel_getUid('autoBackupInterval1');
+      1: Selector := sel_getUid('autoBackupInterval2');
+    else
+      Selector := sel_getUid('autoBackupInterval3');
+    end;
+
+    MenuItem := TNSMenuItem.Wrap(
+      TNSMenuItem.Alloc.initWithTitle(
+        StrToNSStr(TBackupSettings.IntervalCaption(Intervals[I])),
+        Selector,
+        StrToNSStr('')
+      )
+    );
+    MenuItem.setTarget(FMenuHandler.GetObjectID);
+    if Selected = Intervals[I] then
+      MenuItem.setState(1)
+    else
+      MenuItem.setState(0);
+    FBackupIntervalMenuItems[I] := MenuItem;
+    FBackupAutoMenu.addItem(MenuItem);
+    MenuItem.release;
+  end;
+
+  FBackupAutoMenu.addItem(TNSMenuItem.Wrap(TNSMenuItem.OCClass.separatorItem));
+  MenuItem := TNSMenuItem.Wrap(
+    TNSMenuItem.Alloc.initWithTitle(
+      StrToNSStr('Aus'),
+      sel_getUid('autoBackupOff'),
+      StrToNSStr('')
+    )
+  );
+  MenuItem.setTarget(FMenuHandler.GetObjectID);
+  if Selected = 0 then
+    MenuItem.setState(1)
+  else
+    MenuItem.setState(0);
+  FBackupOffMenuItem := MenuItem;
+  FBackupAutoMenu.addItem(MenuItem);
+  MenuItem.release;
+end;
+
+function TTrayIcon.SelectBackupDirectory(out ADirectory: string): Boolean;
+var
+  Panel: NSOpenPanel;
+  SelectedURL: NSURL;
+begin
+  Result := False;
+  ADirectory := '';
+
+  Panel := TNSOpenPanel.Wrap(TNSOpenPanel.OCClass.openPanel);
+  Panel.setTitle(StrToNSStr('Backup-Ziel für MailNotes auswählen'));
+  Panel.setPrompt(StrToNSStr('Auswählen'));
+  Panel.setCanChooseDirectories(True);
+  Panel.setCanChooseFiles(False);
+  Panel.setAllowsMultipleSelection(False);
+  Panel.setCanCreateDirectories(True);
+
+  if Panel.runModal <> 1 then
+    Exit;
+
+  SelectedURL := Panel.URL;
+  if SelectedURL = nil then
+    Exit;
+
+  ADirectory := NSStrToStr(SelectedURL.path);
+  Result := ADirectory <> '';
+end;
+
+procedure TTrayIcon.RevealBackupDirectoryInFinder;
+var
+  Workspace: NSWorkspace;
+  DirectoryName: string;
+begin
+  DirectoryName := TAppPaths.BackupDirectory;
+  if DirectoryName = '' then
+    Exit;
+
+  Workspace := TNSWorkspace.Wrap(TNSWorkspace.OCClass.sharedWorkspace);
+  Workspace.openFile(StrToNSStr(DirectoryName));
+end;
+
+procedure TTrayIcon.ChangeBackupDirectory;
+var
+  DirectoryName: string;
+begin
+  if not SelectBackupDirectory(DirectoryName) then
+    Exit;
+
+  TAppPaths.SetBackupDirectory(DirectoryName);
+  UpdateTrayIcon;
+  if FBackupDirectoryLink <> nil then
+    FBackupDirectoryLink.setTitle(StrToNSStr(DirectoryName));
+  ShowMacMessage('Backup-Ziel gespeichert', DirectoryName);
+end;
+
+procedure TTrayIcon.CreateDatabaseBackup;
+var
+  DirectoryName: string;
+  BackupFile: string;
+begin
+  if FHttpServer = nil then
+  begin
+    ShowMacMessage('Backup fehlgeschlagen', 'Der HTTP-Server ist nicht verfügbar.');
+    Exit;
+  end;
+
+  DirectoryName := TAppPaths.BackupDirectory;
+  if (DirectoryName = '') or not TDirectory.Exists(DirectoryName) then
+  begin
+    if not SelectBackupDirectory(DirectoryName) then
+      Exit;
+    TAppPaths.SetBackupDirectory(DirectoryName);
+    UpdateTrayIcon;
+  end;
+
+  try
+    BackupFile := FHttpServer.CreateDatabaseBackup(DirectoryName);
+    if FBackupDirectoryLink <> nil then
+      FBackupDirectoryLink.setTitle(StrToNSStr(DirectoryName));
+    if FLastBackupLabel <> nil then
+      FLastBackupLabel.setStringValue(StrToNSStr('Letztes Backup: ' + BackupFile));
+    ShowMacMessage('Backup erfolgreich', BackupFile);
+  except
+    on E: Exception do
+      ShowMacMessage('Backup fehlgeschlagen', E.Message);
+  end;
+end;
 
 procedure TTrayIcon.ChangeDatabasePath;
 var

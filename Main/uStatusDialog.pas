@@ -34,6 +34,9 @@ const
   ID_OPEN_DATA = 2003;
   ID_COPY_INFO = 2004;
   ID_CLOSE = 2005;
+  ID_OPEN_CONFIG = 2006;
+  ID_OPEN_BACKUP = 2007;
+  ID_OPEN_LAST_BACKUP = 2008;
 
   ID_STATUS_AUTOSTART = 2101;
   ID_STATUS_HTTP = 2102;
@@ -48,7 +51,7 @@ const
   COLOR_OK         = $002A7A13; // #137A2A
 
   WINDOW_WIDTH = 820;
-  WINDOW_HEIGHT = 520;
+  WINDOW_HEIGHT = 700;
 
 var
   StatusWindow: HWND;
@@ -248,7 +251,10 @@ begin
     'Agent: ' + TAppPaths.AgentFile + sLineBreak +
     'Outlook-Add-in: ' + TAppPaths.AddinDirectory +
       ' (' + AddinStatusText + ')' + sLineBreak +
-    'Datenbank: ' + TAppPaths.DatabaseFile;
+    'Datenbank: ' + TAppPaths.DatabaseFile + sLineBreak +
+    'Konfiguration: ' + TAppPaths.ConfigFile + sLineBreak +
+    'Backup-Ziel: ' + TAppPaths.BackupDirectory + sLineBreak +
+    'Letztes Backup: ' + TAppPaths.LastSuccessfulBackup;
 end;
 
 procedure CopyTextToClipboard(const Owner: HWND; const Text: string);
@@ -308,6 +314,37 @@ begin
     );
 end;
 
+procedure RevealExistingFile(
+  const Owner: HWND;
+  const FileName, Description: string
+);
+var
+  Parameters: string;
+begin
+  if TFile.Exists(FileName) then
+  begin
+    Parameters := '/select,"' + FileName + '"';
+    ShellExecuteW(
+      Owner,
+      'open',
+      'explorer.exe',
+      PWideChar(Parameters),
+      nil,
+      SW_SHOWNORMAL
+    );
+  end
+  else
+    MessageBoxW(
+      Owner,
+      PWideChar(
+        Description + ' ist noch nicht vorhanden.' +
+        sLineBreak + sLineBreak + FileName
+      ),
+      'MailNotes Agent',
+      MB_OK or MB_ICONINFORMATION
+    );
+end;
+
 procedure AddPathRow(
   const WindowHandle: HWND;
   const Caption, PathText, StatusText: string;
@@ -316,7 +353,14 @@ procedure AddPathRow(
 begin
   AddStatic(WindowHandle, Caption, 68, Y, 155, 24, SS_LEFT, FontSection);
   AddStatic(WindowHandle, PathText, 225, Y, 405, 36, SS_LEFT or SS_NOPREFIX);
-  AddButton(WindowHandle, 'Ordner öffnen', ButtonID, 650, Y - 3, 125, 30);
+
+  if (ButtonID = ID_OPEN_AGENT) or
+     (ButtonID = ID_OPEN_DATA) or
+     (ButtonID = ID_OPEN_CONFIG) or
+     (ButtonID = ID_OPEN_LAST_BACKUP) then
+    AddButton(WindowHandle, 'Datei anzeigen', ButtonID, 650, Y - 3, 125, 30)
+  else
+    AddButton(WindowHandle, 'Ordner öffnen', ButtonID, 650, Y - 3, 125, 30);
 
   if StatusText <> '' then
     AddStatic(WindowHandle, StatusText, 225, Y + 25, 405, 20, SS_LEFT);
@@ -433,18 +477,45 @@ begin
     TAppPaths.DatabaseFile,
     '',
     ID_OPEN_DATA,
-    431
+    421
+  );
+
+  AddPathRow(
+    WindowHandle,
+    'Konfiguration',
+    TAppPaths.ConfigFile,
+    '',
+    ID_OPEN_CONFIG,
+    471
+  );
+
+  AddPathRow(
+    WindowHandle,
+    'Backup-Ziel',
+    TAppPaths.BackupDirectory,
+    '',
+    ID_OPEN_BACKUP,
+    521
+  );
+
+  AddPathRow(
+    WindowHandle,
+    'Letztes Backup',
+    TAppPaths.LastSuccessfulBackup,
+    '',
+    ID_OPEN_LAST_BACKUP,
+    571
   );
 
   AddStatic(
     WindowHandle,
     'Diese Informationen können bei der Diagnose und im Support hilfreich sein.',
-    30, 492, 405, 24,
+    30, 652, 405, 24,
     SS_LEFT
   );
 
-  AddButton(WindowHandle, 'In Zwischenablage kopieren', ID_COPY_INFO, 460, 486, 205, 32);
-  AddButton(WindowHandle, 'Schließen', ID_CLOSE, 675, 486, 100, 32, True);
+  AddButton(WindowHandle, 'In Zwischenablage kopieren', ID_COPY_INFO, 460, 646, 205, 32);
+  AddButton(WindowHandle, 'Schließen', ID_CLOSE, 675, 646, 100, 32, True);
 end;
 
 procedure CenterWindow(const WindowHandle, Owner: HWND);
@@ -512,7 +583,7 @@ begin
           OldBrush := SelectObject(DC, PanelBrush);
           try
             RoundRect(DC, 24, 104, 776, 282, 10, 10);
-            RoundRect(DC, 24, 298, 776, 468, 10, 10);
+            RoundRect(DC, 24, 298, 776, 628, 10, 10);
           finally
             SelectObject(DC, OldBrush);
             SelectObject(DC, OldPen);
@@ -558,10 +629,10 @@ begin
       begin
         case LoWord(WParam) of
           ID_OPEN_AGENT:
-            OpenExistingDirectory(
+            RevealExistingFile(
               WindowHandle,
-              TAppPaths.ExecutableDirectory,
-              'Der Agent-Ordner'
+              TAppPaths.AgentFile,
+              'Die Agent-Datei'
             );
 
           ID_OPEN_ADDIN:
@@ -574,12 +645,36 @@ begin
           ID_OPEN_DATA:
             begin
               TAppPaths.EnsureDataDirectory;
-              OpenExistingDirectory(
+              RevealExistingFile(
                 WindowHandle,
-                TAppPaths.DataDirectory,
-                'Der Datenordner'
+                TAppPaths.DatabaseFile,
+                'Die Datenbank'
               );
             end;
+
+          ID_OPEN_CONFIG:
+            begin
+              TAppPaths.EnsureDataDirectory;
+              RevealExistingFile(
+                WindowHandle,
+                TAppPaths.ConfigFile,
+                'Die Konfigurationsdatei'
+              );
+            end;
+
+          ID_OPEN_BACKUP:
+            OpenExistingDirectory(
+              WindowHandle,
+              TAppPaths.BackupDirectory,
+              'Das Backup-Ziel'
+            );
+
+          ID_OPEN_LAST_BACKUP:
+            RevealExistingFile(
+              WindowHandle,
+              TAppPaths.LastSuccessfulBackup,
+              'Das letzte Backup'
+            );
 
           ID_COPY_INFO:
             begin

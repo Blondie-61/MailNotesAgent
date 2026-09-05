@@ -10,6 +10,7 @@ uses
   System.NetEncoding,
   System.Generics.Collections,
   System.Character,
+  System.Variants,
 
   FireDAC.UI.Intf,
 {$IF Defined(MSWINDOWS)}
@@ -17,7 +18,6 @@ uses
 {$ELSE}
   FireDAC.ConsoleUI.Wait,
 {$ENDIF}
-  FireDAC.Phys.SQLiteWrapper.Stat,
   FireDAC.DApt,
   FireDAC.Stan.Intf,
   FireDAC.Stan.Def,
@@ -27,6 +27,8 @@ uses
   FireDAC.Phys,
   FireDAC.Phys.SQLite,
   FireDAC.Phys.SQLiteDef,
+  FireDAC.Phys.SQLiteWrapper,
+  FireDAC.Phys.SQLiteWrapper.Stat,
   FireDAC.Comp.Client,
 
   uNote,
@@ -57,6 +59,7 @@ type
     procedure Open;
     procedure Close;
     function ChangeDatabasePath(const APath: string; out AMode: string): string;
+    function CreateBackup(const ADestinationDirectory: string; const ARetentionCount: Integer = 10): string;
 
     procedure Save(Note: TNote);
     procedure RefreshMailIdentity(Note: TNote);
@@ -103,8 +106,12 @@ type
 
   private
     FConnection: TFDConnection;
+    FSQLiteDriverLink: TFDPhysSQLiteDriverLink;
 
     function PrepareDatabaseFile: string;
+    procedure CreateSQLiteSnapshot(const ATargetFile: string);
+    procedure VerifySQLiteDatabase(const ADatabaseFile: string);
+    procedure RotateBackups(const ADirectory: string; const ARetentionCount: Integer);
     function GetCurrentUTC: string;
     function CreateMailNotesID: string;
 
@@ -153,6 +160,7 @@ implementation
 constructor TDatabase.Create;
 begin
   inherited Create;
+  FSQLiteDriverLink := TFDPhysSQLiteDriverLink.Create(nil);
   FConnection := TFDConnection.Create(nil);
 end;
 
@@ -160,6 +168,7 @@ destructor TDatabase.Destroy;
 begin
   Close;
   FConnection.Free;
+  FSQLiteDriverLink.Free;
   inherited;
 end;
 
@@ -187,6 +196,7 @@ var
   OldFile: string;
   TargetFile: string;
   TargetDirectory: string;
+  TemporaryFile: string;
   CreatedTarget: Boolean;
 begin
   OldFile := TPath.GetFullPath(FConnection.Params.Database);
@@ -212,32 +222,41 @@ begin
   if TargetDirectory = '' then
     raise Exception.Create('Der Zielordner konnte nicht ermittelt werden.');
 
+  TDirectory.CreateDirectory(TargetDirectory);
   CreatedTarget := False;
+  TemporaryFile := TargetFile + '.mailnotes-tmp';
+
   try
-    // Vor dem Kopieren die SQLite-Datei in einen konsistenten Zustand bringen.
-    if FConnection.Connected then
-    begin
-      try
-        FConnection.ExecSQL('PRAGMA wal_checkpoint(TRUNCATE)');
-      except
-        // Nicht jede DB verwendet WAL; das darf den Umzug nicht verhindern.
-      end;
-      FConnection.Close;
-    end;
-
-    TDirectory.CreateDirectory(TargetDirectory);
-
     if TFile.Exists(TargetFile) then
-      AMode := 'adopted'
+    begin
+      // Eine vorhandene Datei wird nur übernommen, wenn SQLite selbst ihre
+      // Integrität bestätigt. Die aktive Datenbank bleibt bis dahin geöffnet.
+      VerifySQLiteDatabase(TargetFile);
+      AMode := 'adopted';
+    end
     else
     begin
-      TFile.Copy(OldFile, TargetFile, False);
+      // Nicht die geöffnete SQLite-Datei mit TFile.Copy kopieren. Der
+      // SQLite-Online-Backup-Mechanismus erzeugt einen konsistenten Snapshot,
+      // auch wenn die Quelldatenbank geöffnet ist oder WAL verwendet.
+      if TFile.Exists(TemporaryFile) then
+        TFile.Delete(TemporaryFile);
+
+      CreateSQLiteSnapshot(TemporaryFile);
+      VerifySQLiteDatabase(TemporaryFile);
+
+      // Erst die vollständig geprüfte, geschlossene Snapshot-Datei bekommt
+      // ihren endgültigen Namen. Da Temp- und Zieldatei im selben Ordner
+      // liegen, ist dies kein erneuter Datenbank-Kopiervorgang.
+      TFile.Move(TemporaryFile, TargetFile);
       CreatedTarget := True;
       AMode := 'moved';
     end;
 
-    // Ziel zuerst wirklich öffnen und prüfen. Erst danach wird die Konfiguration
-    // umgestellt. So bleibt bei einer falschen/defekten Datei die alte DB aktiv.
+    // Erst nach erfolgreicher Prüfung auf die Zieldatenbank umschalten.
+    if FConnection.Connected then
+      FConnection.Close;
+
     FConnection.Params.Database := TargetFile;
     FConnection.Connected := True;
     FConnection.ExecSQL('PRAGMA foreign_keys = ON');
@@ -248,6 +267,14 @@ begin
   except
     on E: Exception do
     begin
+      if TFile.Exists(TemporaryFile) then
+      begin
+        try
+          TFile.Delete(TemporaryFile);
+        except
+        end;
+      end;
+
       try
         if FConnection.Connected then
           FConnection.Close;
@@ -273,6 +300,157 @@ begin
       );
     end;
   end;
+end;
+
+
+procedure TDatabase.CreateSQLiteSnapshot(const ATargetFile: string);
+var
+  Backup: TFDSQLiteBackup;
+begin
+  if not FConnection.Connected then
+    raise Exception.Create('Die MailNotes-Datenbank ist nicht geöffnet.');
+
+  if Trim(ATargetFile) = '' then
+    raise Exception.Create('Für die Sicherung wurde keine Zieldatei angegeben.');
+
+  if TFile.Exists(ATargetFile) then
+    TFile.Delete(ATargetFile);
+
+  Backup := TFDSQLiteBackup.Create(nil);
+  try
+    Backup.DriverLink := FSQLiteDriverLink;
+    Backup.DatabaseObj := FConnection.CliObj;
+    Backup.DestDatabase := ATargetFile;
+    Backup.DestMode := smCreate;
+    Backup.WaitForLocks := True;
+    Backup.BusyTimeout := 5000;
+    Backup.Backup;
+  finally
+    Backup.Free;
+  end;
+end;
+
+
+procedure TDatabase.VerifySQLiteDatabase(const ADatabaseFile: string);
+var
+  CheckConnection: TFDConnection;
+  Query: TFDQuery;
+  CheckResult: string;
+begin
+  if not TFile.Exists(ADatabaseFile) then
+    raise Exception.CreateFmt(
+      'Die SQLite-Datei wurde nicht erstellt: %s',
+      [ADatabaseFile]
+    );
+
+  CheckConnection := TFDConnection.Create(nil);
+  try
+    CheckConnection.DriverName := 'SQLite';
+    CheckConnection.Params.Database := ADatabaseFile;
+    CheckConnection.Params.Values['BusyTimeout'] := '5000';
+    CheckConnection.Connected := True;
+
+    Query := TFDQuery.Create(nil);
+    try
+      Query.Connection := CheckConnection;
+      Query.Open('PRAGMA integrity_check');
+
+      if Query.Eof then
+        CheckResult := ''
+      else
+        CheckResult := VarToStr(Query.Fields[0].Value);
+    finally
+      Query.Free;
+    end;
+  finally
+    CheckConnection.Free;
+  end;
+
+  if not SameText(Trim(CheckResult), 'ok') then
+    raise Exception.CreateFmt(
+      'SQLite-Integritätsprüfung fehlgeschlagen (%s): %s',
+      [ExtractFileName(ADatabaseFile), CheckResult]
+    );
+end;
+
+
+procedure TDatabase.RotateBackups(
+  const ADirectory: string;
+  const ARetentionCount: Integer
+);
+var
+  Files: TArray<string>;
+  I: Integer;
+  DeleteCount: Integer;
+begin
+  if ARetentionCount <= 0 then
+    Exit;
+
+  Files := TDirectory.GetFiles(ADirectory, 'MailNotes-*.sqlite', TSearchOption.soTopDirectoryOnly);
+  TArray.Sort<string>(Files);
+
+  DeleteCount := Length(Files) - ARetentionCount;
+  for I := 0 to DeleteCount - 1 do
+  begin
+    try
+      TFile.Delete(Files[I]);
+    except
+      // Ein nicht löschbares altes Backup macht das neue Backup nicht ungültig.
+    end;
+  end;
+end;
+
+
+function TDatabase.CreateBackup(
+  const ADestinationDirectory: string;
+  const ARetentionCount: Integer
+): string;
+var
+  DestinationDirectory: string;
+  FinalFile: string;
+  TemporaryFile: string;
+begin
+  DestinationDirectory := Trim(ADestinationDirectory);
+  if DestinationDirectory = '' then
+    raise Exception.Create('Es wurde kein Backup-Zielordner angegeben.');
+
+  DestinationDirectory := TPath.GetFullPath(DestinationDirectory);
+  TDirectory.CreateDirectory(DestinationDirectory);
+
+  FinalFile := TPath.Combine(
+    DestinationDirectory,
+    'MailNotes-' + FormatDateTime('yyyy-mm-dd-hhnnss', Now) + '.sqlite'
+  );
+
+  // Bei zwei Backups innerhalb derselben Sekunde keines still überschreiben.
+  if TFile.Exists(FinalFile) then
+    FinalFile := TPath.Combine(
+      DestinationDirectory,
+      'MailNotes-' + FormatDateTime('yyyy-mm-dd-hhnnss-zzz', Now) + '.sqlite'
+    );
+
+  TemporaryFile := FinalFile + '.tmp';
+  if TFile.Exists(TemporaryFile) then
+    TFile.Delete(TemporaryFile);
+
+  try
+    CreateSQLiteSnapshot(TemporaryFile);
+    VerifySQLiteDatabase(TemporaryFile);
+    TFile.Move(TemporaryFile, FinalFile);
+  except
+    if TFile.Exists(TemporaryFile) then
+    begin
+      try
+        TFile.Delete(TemporaryFile);
+      except
+      end;
+    end;
+    raise;
+  end;
+
+  // Rotation erst nach einem vollständig erstellten und geprüften Backup.
+  RotateBackups(DestinationDirectory, ARetentionCount);
+  Result := FinalFile;
 end;
 
 procedure TDatabase.EnsureSchema;
