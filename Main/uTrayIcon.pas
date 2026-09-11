@@ -6,6 +6,7 @@ interface
 uses
   Winapi.Windows,
   Winapi.Messages,
+  Winapi.ActiveX,
   uUpdater,
   uHttpServer,
   uBackupScheduler;
@@ -240,8 +241,11 @@ begin
   FWindowHandle := AllocateHWnd(WindowMessage);
   CreateTrayMenu;
   AddTrayIcon;
+//  FBackupScheduler := TBackupScheduler.Create(FHttpServer);
   FBackupScheduler := TBackupScheduler.Create(FHttpServer);
+  FBackupScheduler.Start;
 
+  // Die erste Prüfung erfolgt bewusst leicht verzögert, damit der Agent
   // Die erste Prüfung erfolgt bewusst leicht verzögert, damit der Agent
   // vollständig gestartet ist. Danach wird einmal täglich erneut geprüft.
   SetTimer(FWindowHandle, TIMER_AUTO_UPDATE, INITIAL_UPDATE_DELAY_MS, nil);
@@ -1534,6 +1538,26 @@ begin
 end;
 
 
+function LastBackupDisplayText(const AFileName: string): string;
+var
+  BackupTime: TDateTime;
+begin
+  if AFileName = '' then
+    Exit('Letztes Backup: noch keines');
+
+  if TFile.Exists(AFileName) then
+  begin
+    BackupTime := TFile.GetLastWriteTime(AFileName);
+    Result := 'Letztes Backup: ' +
+      FormatDateTime('dd.mm.yyyy hh:nn', BackupTime) + sLineBreak +
+      IncludeTrailingPathDelimiter(ExtractFileDir(AFileName)) + sLineBreak +
+      ExtractFileName(AFileName);
+  end
+  else
+    Result := 'Letztes Backup: ' + AFileName;
+end;
+
+
 procedure TTrayIcon.ShowAgentInfo;
 var
   ContentView: NSView;
@@ -1683,7 +1707,7 @@ begin
     ContentView.addSubview(ChangeButton);
     ChangeButton.release;
 
-    FLastBackupLabel := NewLabel('', 24, 28, 570, 24);
+    FLastBackupLabel := NewLabel('', 24, 4, 570, 54);
     ContentView.addSubview(FLastBackupLabel);
     FLastBackupLabel.release;
   end;
@@ -1700,13 +1724,8 @@ begin
   end;
 
   if FLastBackupLabel <> nil then
-  begin
-    if TAppPaths.LastSuccessfulBackup = '' then
-      FLastBackupLabel.setStringValue(StrToNSStr('Letztes Backup: noch keines'))
-    else
-      FLastBackupLabel.setStringValue(StrToNSStr(
-        'Letztes Backup: ' + TAppPaths.LastSuccessfulBackup));
-  end;
+    FLastBackupLabel.setStringValue(StrToNSStr(
+      LastBackupDisplayText(TAppPaths.LastSuccessfulBackup)));
 
   App := TNSApplication.Wrap(TNSApplication.OCClass.sharedApplication);
   App.activateIgnoringOtherApps(True);
@@ -1944,7 +1963,8 @@ begin
     if FBackupDirectoryLink <> nil then
       FBackupDirectoryLink.setTitle(StrToNSStr(DirectoryName));
     if FLastBackupLabel <> nil then
-      FLastBackupLabel.setStringValue(StrToNSStr('Letztes Backup: ' + BackupFile));
+      FLastBackupLabel.setStringValue(StrToNSStr(
+        LastBackupDisplayText(BackupFile)));
     ShowMacMessage('Backup erfolgreich', BackupFile);
   except
     on E: Exception do

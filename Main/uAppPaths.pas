@@ -22,6 +22,7 @@ type
     class procedure SetBackupDirectory(const ADirectory: string); static;
     class function LastSuccessfulBackup: string; static;
     class procedure SetLastSuccessfulBackup(const AFileName: string); static;
+    class function BackupRetentionCount: Integer; static;
     class function LogFile: string; static;
     class function TlsDirectory: string; static;
     class function TlsCertificateFile: string; static;
@@ -205,6 +206,28 @@ begin
     Ini.Free;
   end;
 end;
+
+class function TAppPaths.BackupRetentionCount: Integer;
+const
+  DEFAULT_RETENTION_COUNT = 3;
+var
+  Ini: TIniFile;
+begin
+  Result := DEFAULT_RETENTION_COUNT;
+  if not TFile.Exists(ConfigFile) then
+    Exit;
+
+  Ini := TIniFile.Create(ConfigFile);
+  try
+    Result := Ini.ReadInteger('Backup', 'RetentionCount', DEFAULT_RETENTION_COUNT);
+  finally
+    Ini.Free;
+  end;
+
+  if Result <= 0 then
+    Result := DEFAULT_RETENTION_COUNT;
+end;
+
 
 class function TAppPaths.LogFile: string;
 begin

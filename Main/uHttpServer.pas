@@ -63,6 +63,7 @@ type
     procedure HandleMailRefresh(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleResolve(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleBacklinks(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleBacklinkDelete(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleSearch(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleFavorites(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleTags(AResponseInfo: TIdHTTPResponseInfo);
@@ -90,7 +91,7 @@ type
     procedure Start;
     procedure Stop;
     function ChangeDatabasePath(const APath: string; out AMode: string): string;
-    function CreateDatabaseBackup(const ADestinationDirectory: string; const ARetentionCount: Integer = 10): string;
+    function CreateDatabaseBackup(const ADestinationDirectory: string; const ARetentionCount: Integer = 0): string;
   end;
 
 implementation
@@ -209,10 +210,16 @@ function THttpServer.CreateDatabaseBackup(
   const ADestinationDirectory: string;
   const ARetentionCount: Integer
 ): string;
+var
+  RetentionCount: Integer;
 begin
+  RetentionCount := ARetentionCount;
+  if RetentionCount <= 0 then
+    RetentionCount := TAppPaths.BackupRetentionCount;
+
   TMonitor.Enter(FDatabaseLock);
   try
-    Result := FDatabase.CreateBackup(ADestinationDirectory, ARetentionCount);
+    Result := FDatabase.CreateBackup(ADestinationDirectory, RetentionCount);
     TAppPaths.SetLastSuccessfulBackup(Result);
   finally
     TMonitor.Exit(FDatabaseLock);
@@ -278,6 +285,8 @@ begin
     begin
       if SameText(ARequestInfo.Document, '/linkbuffer') then
         HandleLinkBufferClear(AResponseInfo)
+      else if SameText(ARequestInfo.Document, '/backlinks') then
+        HandleBacklinkDelete(ARequestInfo, AResponseInfo)
       else
         HandleNotFound(AResponseInfo);
       Exit;
@@ -527,8 +536,7 @@ begin
   end;
 
   try
-    BackupFile := FDatabase.CreateBackup(DestinationDirectory);
-    TAppPaths.SetLastSuccessfulBackup(BackupFile);
+    BackupFile := CreateDatabaseBackup(DestinationDirectory);
     SendJson(
       AResponseInfo,
       '{"ok":true,"backupPath":"' + JsonEscape(BackupFile) + '"}'
@@ -708,6 +716,7 @@ var
   OldItemID: string;
   Note: TNote;
   WasUpdated: Boolean;
+  RepairCompleted: Boolean;
 begin
   MailNotesID := ARequestInfo.Params.Values['mailNotesId'];
   MessageID := ARequestInfo.Params.Values['messageId'];
@@ -752,9 +761,12 @@ begin
       not SameText(Note.ItemID, OldItemID);
 
     FDatabase.RefreshMailIdentity(Note);
-    FDatabase.CompleteRepairQueueByIdentity(Note.MailNotesID, Note.MessageID);
+    RepairCompleted := FDatabase.CompleteRepairQueueByIdentity(
+      Note.MailNotesID,
+      Note.MessageID
+    );
 
-    if WasUpdated then
+    if WasUpdated or RepairCompleted then
       LogToFile(
         'Agent',
         'SHL repaired',
@@ -768,6 +780,7 @@ begin
       '{' +
       '"found":true,' +
       '"updated":' + LowerCase(BoolToStr(WasUpdated, True)) + ',' +
+      '"repairCompleted":' + LowerCase(BoolToStr(RepairCompleted, True)) + ',' +
       '"mailNotesId":"' + JsonEscape(Note.MailNotesID) + '",' +
       '"oldItemId":"' + JsonEscape(OldItemID) + '",' +
       '"itemId":"' + JsonEscape(Note.ItemID) + '"' +
@@ -867,7 +880,8 @@ begin
       Json.Append('"itemId":"' + JsonEscape(Note.ItemID) + '",');
       Json.Append('"subject":"' + JsonEscape(Note.Subject) + '",');
       Json.Append('"senderName":"' + JsonEscape(Note.SenderName) + '",');
-      Json.Append('"mailDate":"' + JsonEscape(Note.MailDate) + '"');
+      Json.Append('"mailDate":"' + JsonEscape(Note.MailDate) + '",');
+      Json.Append('"sourceLink":"' + JsonEscape(Note.BacklinkLink) + '"');
       Json.Append('}');
     end;
 
@@ -878,6 +892,54 @@ begin
     Backlinks.Free;
   end;
 end;
+
+procedure THttpServer.HandleBacklinkDelete(
+  ARequestInfo: TIdHTTPRequestInfo;
+  AResponseInfo: TIdHTTPResponseInfo
+);
+var
+  SourceMailNotesID: string;
+  TargetToken: string;
+  SourceLink: string;
+  Deleted: Boolean;
+begin
+  SourceMailNotesID := Trim(
+    ARequestInfo.Params.Values['sourceMailNotesId']
+  );
+  TargetToken := Trim(
+    ARequestInfo.Params.Values['targetMailIdentity']
+  );
+  SourceLink := Trim(
+    ARequestInfo.Params.Values['sourceLink']
+  );
+
+  if SourceMailNotesID = '' then
+  begin
+    SendJson(AResponseInfo, '{"error":"missing_source_mailnotes_id"}', 400);
+    Exit;
+  end;
+
+  if TargetToken = '' then
+  begin
+    SendJson(AResponseInfo, '{"error":"missing_target_mail_identity"}', 400);
+    Exit;
+  end;
+
+  Deleted := FDatabase.DeleteBacklink(
+    SourceMailNotesID,
+    TargetToken,
+    SourceLink
+  );
+  if Deleted then
+    SendJson(AResponseInfo, '{"ok":true}')
+  else
+    SendJson(
+      AResponseInfo,
+      '{"ok":false,"error":"backlink_not_found"}',
+      404
+    );
+end;
+
 
 procedure THttpServer.HandleSearch(
   ARequestInfo: TIdHTTPRequestInfo;

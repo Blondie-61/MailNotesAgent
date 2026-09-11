@@ -239,6 +239,24 @@ begin
     Result := 'Nicht aktiv';
 end;
 
+function LastBackupDisplayText(const AFileName: string): string;
+var
+  BackupTime: TDateTime;
+begin
+  if AFileName = '' then
+    Exit('noch keines');
+
+  if TFile.Exists(AFileName) then
+  begin
+    BackupTime := TFile.GetLastWriteTime(AFileName);
+    Result := FormatDateTime('dd.mm.yyyy hh:nn', BackupTime) + sLineBreak +
+      IncludeTrailingPathDelimiter(ExtractFileDir(AFileName)) + sLineBreak +
+      ExtractFileName(AFileName);
+  end
+  else
+    Result := AFileName;
+end;
+
 function StatusInformationText: string;
 begin
   Result :=
@@ -254,7 +272,7 @@ begin
     'Datenbank: ' + TAppPaths.DatabaseFile + sLineBreak +
     'Konfiguration: ' + TAppPaths.ConfigFile + sLineBreak +
     'Backup-Ziel: ' + TAppPaths.BackupDirectory + sLineBreak +
-    'Letztes Backup: ' + TAppPaths.LastSuccessfulBackup;
+    LastBackupDisplayText(TAppPaths.LastSuccessfulBackup);
 end;
 
 procedure CopyTextToClipboard(const Owner: HWND; const Text: string);
@@ -498,14 +516,14 @@ begin
     521
   );
 
-  AddPathRow(
+  AddStatic(WindowHandle, 'Letztes Backup', 68, 571, 155, 24, SS_LEFT, FontSection);
+  AddStatic(
     WindowHandle,
-    'Letztes Backup',
-    TAppPaths.LastSuccessfulBackup,
-    '',
-    ID_OPEN_LAST_BACKUP,
-    571
+    LastBackupDisplayText(TAppPaths.LastSuccessfulBackup),
+    225, 571, 405, 60,
+    SS_LEFT or SS_NOPREFIX
   );
+  AddButton(WindowHandle, 'Datei anzeigen', ID_OPEN_LAST_BACKUP, 650, 568, 125, 30);
 
   AddStatic(
     WindowHandle,

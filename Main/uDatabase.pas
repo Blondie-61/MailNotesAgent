@@ -59,7 +59,7 @@ type
     procedure Open;
     procedure Close;
     function ChangeDatabasePath(const APath: string; out AMode: string): string;
-    function CreateBackup(const ADestinationDirectory: string; const ARetentionCount: Integer = 10): string;
+    function CreateBackup(const ADestinationDirectory: string; const ARetentionCount: Integer = 3): string;
 
     procedure Save(Note: TNote);
     procedure RefreshMailIdentity(Note: TNote);
@@ -71,6 +71,9 @@ type
     function GetBacklinks(
       const TargetToken: string
     ): TObjectList<TNote>;
+    function DeleteBacklink(
+      const SourceMailNotesID, TargetToken, SourceLink: string
+    ): Boolean;
 
     function SearchNotes(
       const SearchText: string;
@@ -102,7 +105,7 @@ type
     function GetNotePersons(const MailNotesID: string): TObjectList<TPersonInfo>;
     function GetRepairQueue: TObjectList<TRepairQueueItem>;
     procedure SetRepairQueueStatus(const ID, Status: Integer);
-    procedure CompleteRepairQueueByIdentity(const MailNotesID, MessageID: string);
+    function CompleteRepairQueueByIdentity(const MailNotesID, MessageID: string): Boolean;
 
   private
     FConnection: TFDConnection;
@@ -1815,6 +1818,10 @@ var
   TargetMailNotesID: string;
   Query: TFDQuery;
   Note: TNote;
+  LinkLines: TStringList;
+  Line: string;
+  Token: string;
+  TargetInternetMessageID: string;
 begin
   Result := TObjectList<TNote>.Create(True);
   TargetMailNotesID := FindMailNotesIDByToken(TargetToken);
@@ -1830,10 +1837,12 @@ begin
       ' N.ID, N.MailNotesID, N.Content, N.Links, N.CreatedUTC, N.ModifiedUTC, ' +
       ' N.IsFavorite, N.IsDeleted, N.DeletedUTC, ' +
       ' M.ItemID, M.InternetMessageID, M.ConversationID, M.Subject, ' +
-      ' M.SenderName, M.SenderAddress, M.ReceivedUTC ' +
+      ' M.SenderName, M.SenderAddress, M.ReceivedUTC, ' +
+      ' TM.InternetMessageID AS TargetInternetMessageID ' +
       'FROM MailLink ML ' +
       'INNER JOIN Note N ON N.MailNotesID = ML.SourceMailNotesID ' +
       'INNER JOIN Mail M ON M.MailNotesID = N.MailNotesID ' +
+      'INNER JOIN Mail TM ON TM.MailNotesID = ML.TargetMailNotesID ' +
       'WHERE ML.TargetMailNotesID = :TargetMailNotesID ' +
       '  AND N.IsDeleted = 0 ' +
       'ORDER BY M.ReceivedUTC DESC';
@@ -1859,6 +1868,30 @@ begin
       Note.IsFavorite := Query.FieldByName('IsFavorite').AsInteger <> 0;
       Note.IsDeleted := Query.FieldByName('IsDeleted').AsInteger <> 0;
       Note.DeletedAt := Query.FieldByName('DeletedUTC').AsString;
+
+      // Den exakt gespeicherten Link der Quellnotiz mitgeben. Dabei nicht
+      // erneut über Outlook auflösen, sondern nur die in SQLite bekannten
+      // stabilen Identitäten vergleichen.
+      TargetInternetMessageID :=
+        Query.FieldByName('TargetInternetMessageID').AsString;
+      LinkLines := TStringList.Create;
+      try
+        LinkLines.Text := Note.Links;
+        for Line in LinkLines do
+        begin
+          Token := ExtractMailNotesToken(Trim(Line));
+          if (Token <> '') and
+             (SameText(Token, TargetMailNotesID) or
+              SameText(Token, TargetInternetMessageID)) then
+          begin
+            Note.BacklinkLink := Trim(Line);
+            Break;
+          end;
+        end;
+      finally
+        LinkLines.Free;
+      end;
+
       Result.Add(Note);
       Query.Next;
     end;
@@ -1868,6 +1901,111 @@ begin
   end;
 
   Query.Free;
+end;
+
+
+function TDatabase.DeleteBacklink(
+  const SourceMailNotesID, TargetToken, SourceLink: string
+): Boolean;
+var
+  TargetMailNotesID: string;
+  SourceNote: TNote;
+  LinkLines: TStringList;
+  Query: TFDQuery;
+  I: Integer;
+  Token: string;
+  ResolvedTargetMailNotesID: string;
+  LinksChanged: Boolean;
+  NewLinks: string;
+begin
+  Result := False;
+
+  if (Trim(SourceMailNotesID) = '') or (Trim(TargetToken) = '') then
+    Exit;
+
+  // Ausschließlich gegen die lokale MailNotes-Datenbank auflösen.
+  // Die Outlook-Mail selbst muss zum Löschen nicht mehr existieren.
+  TargetMailNotesID := FindMailNotesIDByToken(TargetToken);
+  if TargetMailNotesID = '' then
+    Exit;
+
+  SourceNote := FindByMailNotesID(SourceMailNotesID);
+  try
+    LinksChanged := False;
+
+    if Assigned(SourceNote) then
+    begin
+      LinkLines := TStringList.Create;
+      try
+        LinkLines.Text := SourceNote.Links;
+
+        for I := LinkLines.Count - 1 downto 0 do
+        begin
+          // Bevorzugt exakt den Link löschen, den die Backlink-API aus der
+          // Quellnotiz geliefert hat. Dadurch hängt das Entfernen nicht von
+          // einer erneuten Zielauflösung ab.
+          if (Trim(SourceLink) <> '') and
+             SameText(Trim(LinkLines[I]), Trim(SourceLink)) then
+          begin
+            LinkLines.Delete(I);
+            LinksChanged := True;
+            Continue;
+          end;
+
+          // Fallback für ältere Clients bzw. Backlinks ohne sourceLink.
+          Token := ExtractMailNotesToken(Trim(LinkLines[I]));
+          if Token = '' then
+            Continue;
+
+          ResolvedTargetMailNotesID := FindMailNotesIDByToken(Token);
+          if SameText(ResolvedTargetMailNotesID, TargetMailNotesID) then
+          begin
+            LinkLines.Delete(I);
+            LinksChanged := True;
+          end;
+        end;
+
+        if LinksChanged then
+        begin
+          NewLinks := LinkLines.Text;
+          while NewLinks.EndsWith(sLineBreak) do
+            Delete(
+              NewLinks,
+              Length(NewLinks) - Length(sLineBreak) + 1,
+              Length(sLineBreak)
+            );
+
+          SourceNote.Links := NewLinks;
+          Save(SourceNote);
+          Result := True;
+        end;
+      finally
+        LinkLines.Free;
+      end;
+    end;
+
+    // Zusätzlich die persistierte Beziehung direkt entfernen. So kann auch
+    // ein verwaister Backlink gelöscht werden, dessen ursprünglicher Linktext
+    // inzwischen ungültig oder nicht mehr zuordenbar ist.
+    Query := TFDQuery.Create(nil);
+    try
+      Query.Connection := FConnection;
+      Query.SQL.Text :=
+        'DELETE FROM MailLink ' +
+        'WHERE SourceMailNotesID = :SourceMailNotesID ' +
+        '  AND TargetMailNotesID = :TargetMailNotesID';
+      Query.ParamByName('SourceMailNotesID').AsString := SourceMailNotesID;
+      Query.ParamByName('TargetMailNotesID').AsString := TargetMailNotesID;
+      Query.ExecSQL;
+
+      if Query.RowsAffected > 0 then
+        Result := True;
+    finally
+      Query.Free;
+    end;
+  finally
+    SourceNote.Free;
+  end;
 end;
 
 
@@ -2147,19 +2285,21 @@ begin
   );
 end;
 
-procedure TDatabase.CompleteRepairQueueByIdentity(
+function TDatabase.CompleteRepairQueueByIdentity(
   const MailNotesID, MessageID: string
-);
+): Boolean;
 begin
+  Result := False;
+
   if (MailNotesID = '') and (MessageID = '') then
     Exit;
 
-  FConnection.ExecSQL(
+  Result := FConnection.ExecSQL(
     'UPDATE SHLRepairQueue SET Status = 2, ModifiedUTC = :ModifiedUTC' +
     ' WHERE Status IN (0, 1)' +
     ' AND (MailNotesID = :MailNotesID OR InternetMessageID = :MessageID)',
     [GetCurrentUTC, MailNotesID, MessageID]
-  );
+  ) > 0;
 end;
 
 

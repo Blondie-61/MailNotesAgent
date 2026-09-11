@@ -32,6 +32,9 @@ type
     SearchSnippet: string;
     SearchRank: Double;
 
+    // Nur für die Backlink-API: exakt gespeicherter Link in der Quellnotiz.
+    BacklinkLink: string;
+
     constructor Create; overload;
     constructor Create(const AMessageID: string); overload;
   end;

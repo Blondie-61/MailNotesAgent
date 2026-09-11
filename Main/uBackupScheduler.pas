@@ -30,6 +30,7 @@ type
     procedure Log(const AText: string);
     function BackupTargetValid(out ADirectory: string): Boolean;
     function IsBackupDue(const AIntervalHours: Integer; const ADirectory: string): Boolean;
+    function DatabaseChangedSinceLastBackup: Boolean;
     procedure TryAutomaticBackup;
   protected
     procedure Execute; override;
@@ -51,6 +52,7 @@ uses
 const
   DEFAULT_INTERVALS = '2,4';
   DEFAULT_SELECTED_INTERVAL = 2;
+  DEFAULT_RETENTION_COUNT = 3;
   CHECK_INTERVAL_MS = 60 * 1000;
 
 class procedure TBackupSettings.EnsureDefaults;
@@ -64,6 +66,8 @@ begin
       Ini.WriteString('Backup', 'AutoIntervals', DEFAULT_INTERVALS);
     if not Ini.ValueExists('Backup', 'AutoIntervalHours') then
       Ini.WriteInteger('Backup', 'AutoIntervalHours', DEFAULT_SELECTED_INTERVAL);
+    if not Ini.ValueExists('Backup', 'RetentionCount') then
+      Ini.WriteInteger('Backup', 'RetentionCount', DEFAULT_RETENTION_COUNT);
     Ini.UpdateFile;
   finally
     Ini.Free;
@@ -213,7 +217,7 @@ begin
   FreeOnTerminate := False;
   FHttpServer := AHttpServer;
   FStopEvent := TEvent.Create(nil, True, False, '');
-  Start;
+//  Start;
 end;
 
 destructor TBackupScheduler.Destroy;
@@ -274,6 +278,34 @@ begin
   Result := MinutesBetween(Now, LastTime) >= (AIntervalHours * 60);
 end;
 
+function TBackupScheduler.DatabaseChangedSinceLastBackup: Boolean;
+var
+  LastBackup: string;
+  LastBackupTime: TDateTime;
+  DatabaseFile: string;
+  WalFile: string;
+
+  function ChangedAfterBackup(const AFileName: string): Boolean;
+  begin
+    Result := TFile.Exists(AFileName) and
+      (TFile.GetLastWriteTime(AFileName) > LastBackupTime);
+  end;
+
+begin
+  LastBackup := TAppPaths.LastSuccessfulBackup;
+  if (LastBackup = '') or not TFile.Exists(LastBackup) then
+    Exit(True);
+
+  LastBackupTime := TFile.GetLastWriteTime(LastBackup);
+  DatabaseFile := TAppPaths.DatabaseFile;
+  WalFile := DatabaseFile + '-wal';
+
+  // SQLite kann Änderungen in der Hauptdatei oder im WAL halten.
+  // Die SHM-Datei wird nicht berücksichtigt, weil sie sich auch
+  // bei reinen Lesezugriffen ändern kann.
+  Result := ChangedAfterBackup(DatabaseFile) or ChangedAfterBackup(WalFile);
+end;
+
 procedure TBackupScheduler.TryAutomaticBackup;
 var
   Directory: string;
@@ -287,6 +319,9 @@ begin
     Exit;
 
   if not IsBackupDue(IntervalHours, Directory) then
+    Exit;
+
+  if not DatabaseChangedSinceLastBackup then
     Exit;
 
   try
