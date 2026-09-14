@@ -58,6 +58,7 @@ type
     procedure HandleDatabaseBackup(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleNotFound(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleNote(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleNoteDelete(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleSave(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleLog(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleMailRefresh(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
@@ -283,7 +284,9 @@ begin
 
     if SameText(ARequestInfo.Command, 'DELETE') then
     begin
-      if SameText(ARequestInfo.Document, '/linkbuffer') then
+      if SameText(ARequestInfo.Document, '/note') then
+        HandleNoteDelete(ARequestInfo, AResponseInfo)
+      else if SameText(ARequestInfo.Document, '/linkbuffer') then
         HandleLinkBufferClear(AResponseInfo)
       else if SameText(ARequestInfo.Document, '/backlinks') then
         HandleBacklinkDelete(ARequestInfo, AResponseInfo)
@@ -613,6 +616,34 @@ begin
   finally
     Note.Free;
   end;
+end;
+
+procedure THttpServer.HandleNoteDelete(
+  ARequestInfo: TIdHTTPRequestInfo;
+  AResponseInfo: TIdHTTPResponseInfo
+);
+var
+  MailNotesID: string;
+  MessageID: string;
+  Deleted: Boolean;
+begin
+  MailNotesID := ARequestInfo.Params.Values['mailNotesId'];
+  MessageID := ARequestInfo.Params.Values['messageId'];
+
+  if (MailNotesID = '') and (MessageID = '') then
+  begin
+    SendJson(AResponseInfo, '{"error":"missing_mail_identity"}', 400);
+    Exit;
+  end;
+
+  Deleted := FDatabase.DeleteNote(MailNotesID, MessageID);
+  if not Deleted then
+  begin
+    SendJson(AResponseInfo, '{"error":"note_not_found"}', 404);
+    Exit;
+  end;
+
+  SendJson(AResponseInfo, '{"deleted":true}');
 end;
 
 procedure THttpServer.HandleSave(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
@@ -1442,6 +1473,7 @@ procedure THttpServer.SendJson(AResponseInfo: TIdHTTPResponseInfo; const AJson: 
 begin
   AResponseInfo.ResponseNo := AStatusCode;
   AResponseInfo.ContentType := 'application/json; charset=utf-8';
+  AResponseInfo.CacheControl := 'no-store';
   AResponseInfo.ContentText := AJson;
 end;
 

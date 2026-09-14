@@ -89,6 +89,9 @@ type
       const MailNotesID, MessageID: string;
       const IsFavorite: Boolean
     ): Boolean;
+    function DeleteNote(
+      const MailNotesID, MessageID: string
+    ): Boolean;
 
     procedure SaveLinkBuffer(LinkBuffer: TLinkBuffer);
     function LoadLinkBuffer: TLinkBuffer;
@@ -1545,6 +1548,91 @@ begin
     Result := Query.RowsAffected > 0;
   finally
     Query.Free;
+  end;
+end;
+
+function TDatabase.DeleteNote(
+  const MailNotesID, MessageID: string
+): Boolean;
+var
+  EffectiveMailNotesID: string;
+  NoteID: Integer;
+  NowUTC: string;
+  Query: TFDQuery;
+begin
+  Result := False;
+  EffectiveMailNotesID := MailNotesID;
+
+  if (EffectiveMailNotesID = '') and (MessageID <> '') then
+    EffectiveMailNotesID := FindMailNotesIDByMessageID(MessageID);
+
+  if EffectiveMailNotesID = '' then
+    Exit;
+
+  if not FConnection.InTransaction then
+    FConnection.StartTransaction;
+
+  try
+    Query := TFDQuery.Create(nil);
+    try
+      Query.Connection := FConnection;
+      Query.SQL.Text :=
+        'SELECT ID FROM Note ' +
+        'WHERE MailNotesID = :MailNotesID AND IsDeleted = 0';
+      Query.ParamByName('MailNotesID').AsString := EffectiveMailNotesID;
+      Query.Open;
+
+      if Query.Eof then
+      begin
+        FConnection.Commit;
+        Exit;
+      end;
+
+      NoteID := Query.FieldByName('ID').AsInteger;
+      Query.Close;
+
+      NowUTC := GetCurrentUTC;
+      Query.SQL.Text :=
+        'UPDATE Note SET IsDeleted = 1, DeletedUTC = :DeletedUTC, ' +
+        'IsFavorite = 0, ModifiedUTC = :ModifiedUTC ' +
+        'WHERE ID = :NoteID AND IsDeleted = 0';
+      Query.ParamByName('DeletedUTC').AsString := NowUTC;
+      Query.ParamByName('ModifiedUTC').AsString := NowUTC;
+      Query.ParamByName('NoteID').AsInteger := NoteID;
+      Query.ExecSQL;
+      Result := Query.RowsAffected > 0;
+
+      if Result then
+      begin
+        Query.Close;
+        Query.SQL.Text := 'DELETE FROM NoteTag WHERE NoteID = :NoteID';
+        Query.ParamByName('NoteID').AsInteger := NoteID;
+        Query.ExecSQL;
+
+        Query.Close;
+        Query.SQL.Text := 'DELETE FROM NotePerson WHERE NoteID = :NoteID';
+        Query.ParamByName('NoteID').AsInteger := NoteID;
+        Query.ExecSQL;
+
+        Query.Close;
+        Query.SQL.Text :=
+          'DELETE FROM MailLink WHERE SourceMailNotesID = :MailNotesID';
+        Query.ParamByName('MailNotesID').AsString := EffectiveMailNotesID;
+        Query.ExecSQL;
+
+        DeleteUnusedTags;
+        DeleteUnusedPersons;
+        UpdateSearchEntry(EffectiveMailNotesID);
+      end;
+    finally
+      Query.Free;
+    end;
+
+    FConnection.Commit;
+  except
+    if FConnection.InTransaction then
+      FConnection.Rollback;
+    raise;
   end;
 end;
 

@@ -91,7 +91,7 @@ begin
     ]
   );
 {$ELSE}
-  Result := '1.0.0.6';
+  Result := '1.0.0.7';
 {$ENDIF}
 end;
 
