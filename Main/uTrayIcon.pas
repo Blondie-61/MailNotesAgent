@@ -1311,6 +1311,7 @@ begin
 
   CreateStatusItem;
   FBackupScheduler := TBackupScheduler.Create(FHttpServer);
+  FBackupScheduler.Start;
 end;
 
 
