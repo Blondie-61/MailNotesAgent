@@ -2,7 +2,7 @@
 ; Erstellt mit Inno Setup 6
 
 #define MyAppName "MailNotes Agent"
-#define MyAppVersion "1.0.0.6"
+#define MyAppVersion "1.0.0.7"
 #define MySetupVersion "0.2"
 #define MyAppPublisher "MailNotes"
 #define MyAppExeName "MailNotesAgent.exe"
