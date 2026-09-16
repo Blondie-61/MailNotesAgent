@@ -38,6 +38,7 @@ PRAGMA table_info(NotePerson);
 PRAGMA table_info(MailLink);
 PRAGMA table_info(AppState);
 PRAGMA table_info(SHLRepairQueue);
+PRAGMA table_info(GraphAccount);
 
 -- Fremdschluesseldefinitionen
 PRAGMA foreign_key_list(Note);

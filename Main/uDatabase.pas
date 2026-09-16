@@ -461,6 +461,27 @@ end;
 
 procedure TDatabase.EnsureSchema;
 begin
+  // Graph ist eine kontobezogene, zur Laufzeit festgestellte Faehigkeit.
+  // OAuth-Tokens werden ausdruecklich nicht in der SQLite-Datenbank gespeichert.
+  FConnection.ExecSQL(
+    'CREATE TABLE IF NOT EXISTS GraphAccount (' +
+    ' MailboxAddress TEXT NOT NULL PRIMARY KEY,' +
+    ' TenantID TEXT,' +
+    ' UserID TEXT,' +
+    ' GraphState INTEGER NOT NULL DEFAULT 0,' +
+    ' LastCheckedUTC TEXT,' +
+    ' LastSuccessUTC TEXT,' +
+    ' LastError TEXT,' +
+    ' CHECK (length(MailboxAddress) > 0),' +
+    ' CHECK (GraphState IN (0, 1, 2, 3, 4))' +
+    ')'
+  );
+
+  FConnection.ExecSQL(
+    'CREATE INDEX IF NOT EXISTS IX_GraphAccount_User ' +
+    'ON GraphAccount(TenantID, UserID)'
+  );
+
   FConnection.ExecSQL(
     'CREATE TABLE IF NOT EXISTS SHLRepairQueue (' +
     ' ID INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,' +
@@ -575,8 +596,8 @@ begin
   );
 
   FConnection.ExecSQL(
-    'UPDATE SchemaInfo SET SchemaVersion = 5 ' +
-    'WHERE SchemaVersion < 5'
+    'UPDATE SchemaInfo SET SchemaVersion = 6 ' +
+    'WHERE SchemaVersion < 6'
   );
 end;
 

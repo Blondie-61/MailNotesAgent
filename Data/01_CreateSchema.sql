@@ -12,7 +12,7 @@ CREATE TABLE SchemaInfo
 );
 
 INSERT INTO SchemaInfo (SchemaVersion, CreatedUTC)
-VALUES (5, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+VALUES (6, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
 
 -- Fachliche Identitaet einer E-Mail in MailNotes.
 -- MailNotesID bleibt stabil; Outlook-IDs duerfen sich beim Verschieben aendern.
@@ -249,6 +249,33 @@ CREATE TABLE SHLRepairQueue
 
 CREATE INDEX IX_SHLRepairQueue_Status
     ON SHLRepairQueue(Status, CreatedUTC);
+
+
+-- Graph-Zustand pro Mailbox. Graph ist eine zur Laufzeit festgestellte
+-- Faehigkeit; OAuth-Tokens werden nicht in dieser Datenbank gespeichert.
+CREATE TABLE GraphAccount
+(
+    MailboxAddress TEXT    NOT NULL PRIMARY KEY,
+    TenantID       TEXT,
+    UserID         TEXT,
+    GraphState     INTEGER NOT NULL DEFAULT 0,
+    LastCheckedUTC TEXT,
+    LastSuccessUTC TEXT,
+    LastError      TEXT,
+
+    CHECK (length(MailboxAddress) > 0),
+    CHECK (GraphState IN (0, 1, 2, 3, 4))
+);
+
+-- GraphState:
+-- 0 = unbekannt / noch nicht geprueft
+-- 1 = verfuegbar
+-- 2 = erneute Anmeldung erforderlich
+-- 3 = Berechtigung fehlt oder wurde entzogen
+-- 4 = Graph derzeit nicht erreichbar
+
+CREATE INDEX IX_GraphAccount_User
+    ON GraphAccount(TenantID, UserID);
 
 
 -- Volltextindex fuer Notiztext und Mail-Metadaten.
