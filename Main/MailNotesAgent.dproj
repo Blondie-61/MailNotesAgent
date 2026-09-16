@@ -278,6 +278,7 @@
         <DCCReference Include="uGithubRelease.pas"/>
         <DCCReference Include="uUpdater.pas"/>
         <DCCReference Include="uDatabase.pas"/>
+        <DCCReference Include="uGraphAccounts.pas"/>
         <DCCReference Include="uNote.pas"/>
         <DCCReference Include="uLinkBuffer.pas"/>
         <DCCReference Include="uRepairQueue.pas"/>

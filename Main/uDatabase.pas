@@ -110,6 +110,18 @@ type
     procedure SetRepairQueueStatus(const ID, Status: Integer);
     function CompleteRepairQueueByIdentity(const MailNotesID, MessageID: string): Boolean;
 
+    procedure UpsertGraphAccount(
+      const MailboxAddress, TenantID, UserID: string;
+      const GraphState: Integer;
+      const LastCheckedUTC, LastSuccessUTC, LastError: string
+    );
+    function LoadGraphAccount(
+      const MailboxAddress: string;
+      out TenantID, UserID: string;
+      out GraphState: Integer;
+      out LastCheckedUTC, LastSuccessUTC, LastError: string
+    ): Boolean;
+
   private
     FConnection: TFDConnection;
     FSQLiteDriverLink: TFDPhysSQLiteDriverLink;
@@ -2411,5 +2423,88 @@ begin
   ) > 0;
 end;
 
+
+
+procedure TDatabase.UpsertGraphAccount(
+  const MailboxAddress, TenantID, UserID: string;
+  const GraphState: Integer;
+  const LastCheckedUTC, LastSuccessUTC, LastError: string
+);
+var
+  Q: TFDQuery;
+begin
+  if Trim(MailboxAddress) = '' then
+    raise Exception.Create('MailboxAddress darf nicht leer sein.');
+
+  Q := TFDQuery.Create(nil);
+  try
+    Q.Connection := FConnection;
+    Q.SQL.Text :=
+      'INSERT INTO GraphAccount (' +
+      ' MailboxAddress, TenantID, UserID, GraphState,' +
+      ' LastCheckedUTC, LastSuccessUTC, LastError' +
+      ') VALUES (' +
+      ' :MailboxAddress, :TenantID, :UserID, :GraphState,' +
+      ' :LastCheckedUTC, :LastSuccessUTC, :LastError' +
+      ') ON CONFLICT(MailboxAddress) DO UPDATE SET ' +
+      ' TenantID = COALESCE(NULLIF(excluded.TenantID, ''''), GraphAccount.TenantID),' +
+      ' UserID = COALESCE(NULLIF(excluded.UserID, ''''), GraphAccount.UserID),' +
+      ' GraphState = excluded.GraphState,' +
+      ' LastCheckedUTC = excluded.LastCheckedUTC,' +
+      ' LastSuccessUTC = COALESCE(NULLIF(excluded.LastSuccessUTC, ''''), GraphAccount.LastSuccessUTC),' +
+      ' LastError = excluded.LastError';
+
+    Q.ParamByName('MailboxAddress').AsString := Trim(LowerCase(MailboxAddress));
+    Q.ParamByName('TenantID').AsString := Trim(TenantID);
+    Q.ParamByName('UserID').AsString := Trim(UserID);
+    Q.ParamByName('GraphState').AsInteger := GraphState;
+    Q.ParamByName('LastCheckedUTC').AsString := LastCheckedUTC;
+    Q.ParamByName('LastSuccessUTC').AsString := LastSuccessUTC;
+    Q.ParamByName('LastError').AsString := LastError;
+    Q.ExecSQL;
+  finally
+    Q.Free;
+  end;
+end;
+
+function TDatabase.LoadGraphAccount(
+  const MailboxAddress: string;
+  out TenantID, UserID: string;
+  out GraphState: Integer;
+  out LastCheckedUTC, LastSuccessUTC, LastError: string
+): Boolean;
+var
+  Q: TFDQuery;
+begin
+  TenantID := '';
+  UserID := '';
+  GraphState := 0;
+  LastCheckedUTC := '';
+  LastSuccessUTC := '';
+  LastError := '';
+
+  Q := TFDQuery.Create(nil);
+  try
+    Q.Connection := FConnection;
+    Q.SQL.Text :=
+      'SELECT TenantID, UserID, GraphState, LastCheckedUTC, LastSuccessUTC, LastError ' +
+      'FROM GraphAccount WHERE MailboxAddress = :MailboxAddress';
+    Q.ParamByName('MailboxAddress').AsString := Trim(LowerCase(MailboxAddress));
+    Q.Open;
+
+    Result := not Q.Eof;
+    if not Result then
+      Exit;
+
+    TenantID := Q.FieldByName('TenantID').AsString;
+    UserID := Q.FieldByName('UserID').AsString;
+    GraphState := Q.FieldByName('GraphState').AsInteger;
+    LastCheckedUTC := Q.FieldByName('LastCheckedUTC').AsString;
+    LastSuccessUTC := Q.FieldByName('LastSuccessUTC').AsString;
+    LastError := Q.FieldByName('LastError').AsString;
+  finally
+    Q.Free;
+  end;
+end;
 
 end.
