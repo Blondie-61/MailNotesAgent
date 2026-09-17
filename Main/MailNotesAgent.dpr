@@ -28,6 +28,7 @@ uses
   uUpdater in 'uUpdater.pas',
   uDatabase in 'uDatabase.pas',
   uGraphAccounts in 'uGraphAccounts.pas',
+  uGraphAuth in 'uGraphAuth.pas',
   uNote in 'uNote.pas',
   uLinkBuffer in 'uLinkBuffer.pas',
   uRepairQueue in 'uRepairQueue.pas',

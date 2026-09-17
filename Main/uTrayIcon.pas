@@ -105,6 +105,7 @@ type
     procedure ExecuteMenuCommand(const CommandID: NativeUInt);
     procedure ShowStatusDialog;
     procedure CheckForUpdates;
+    procedure TestGraphAuthorization;
     procedure StartAutomaticUpdateCheck;
     procedure HandleAutomaticUpdateResult(const ResultPointer: Pointer);
     procedure ApplyUpdateCheckResult(const CheckResult: TUpdateCheckResult);
@@ -182,8 +183,10 @@ uses
   Winapi.ShlObj,
   Winapi.CommDlg,
   System.Classes,
+  System.StrUtils,
   uTrayIconResources,
-  uStatusDialog
+  uStatusDialog,
+  uGraphAuth
 {$ELSEIF Defined(MACOS)}
   , Macapi.Helpers,
   Macapi.ObjCRuntime,
@@ -214,6 +217,7 @@ const
   MENU_BACKUP_INTERVAL_3 = 1010;
   MENU_BACKUP_AUTO_OFF = 1011;
   MENU_EXIT = 1012;
+  MENU_TEST_GRAPH_AUTH = 1013;
 
 type
   TAutomaticUpdateResult = record
@@ -375,6 +379,7 @@ begin
   AppendMenu(FPopupMenu, MF_STRING or MF_GRAYED, MENU_STATUS, PChar(StatusText));
   AppendMenu(FPopupMenu, MF_STRING, MENU_SHOW_STATUS, 'Statusinformationen...');
   AppendMenu(FPopupMenu, MF_STRING, MENU_CHECK_UPDATES, 'Nach Updates suchen...');
+  AppendMenu(FPopupMenu, MF_STRING, MENU_TEST_GRAPH_AUTH, 'Graph-Anmeldung testen ...');
   AppendMenu(FPopupMenu, MF_SEPARATOR, 0, nil);
   AppendMenu(FPopupMenu, MF_STRING, MENU_OPEN_DATA, 'Datenordner öffnen');
   AppendMenu(FPopupMenu, MF_STRING, MENU_OPEN_LOG, 'Logdatei öffnen');
@@ -539,6 +544,9 @@ begin
     MENU_CHECK_UPDATES:
       CheckForUpdates;
 
+    MENU_TEST_GRAPH_AUTH:
+      TestGraphAuthorization;
+
     MENU_OPEN_DATA:
       OpenDataDirectory;
 
@@ -574,6 +582,69 @@ begin
         RemoveTrayIcon;
         PostQuitMessage(0);
       end;
+  end;
+end;
+
+
+procedure TTrayIcon.TestGraphAuthorization;
+var
+  Verifier: string;
+  AuthResult: TGraphAuthorizationResult;
+  Tokens: TGraphTokenResult;
+  UserInfo: TGraphUserInfo;
+  ErrorText: string;
+  MailboxAddress: string;
+  Details: string;
+begin
+  try
+    if not TGraphAuth.Authorize(Verifier, AuthResult) then
+    begin
+      Details := 'Graph-Anmeldung fehlgeschlagen.';
+      if AuthResult.Error <> '' then
+        Details := Details + sLineBreak + sLineBreak + 'Fehler: ' + AuthResult.Error;
+      if AuthResult.ErrorDescription <> '' then
+        Details := Details + sLineBreak + AuthResult.ErrorDescription;
+      MessageBox(FWindowHandle, PChar(Details), 'MailNotes Graph-Test',
+        MB_OK or MB_ICONERROR);
+      Exit;
+    end;
+
+    if not TGraphAuth.ExchangeAuthorizationCode(
+      AuthResult.AuthorizationCode, Verifier, Tokens, ErrorText) then
+    begin
+      MessageBox(FWindowHandle,
+        PChar('Token-Austausch fehlgeschlagen:' + sLineBreak + sLineBreak + ErrorText),
+        'MailNotes Graph-Test', MB_OK or MB_ICONERROR);
+      Exit;
+    end;
+
+    if not TGraphAuth.GetMe(Tokens.AccessToken, UserInfo, ErrorText) then
+    begin
+      MessageBox(FWindowHandle,
+        PChar('Graph /me fehlgeschlagen:' + sLineBreak + sLineBreak + ErrorText),
+        'MailNotes Graph-Test', MB_OK or MB_ICONERROR);
+      Exit;
+    end;
+
+    MailboxAddress := UserInfo.Mail;
+    if MailboxAddress = '' then
+      MailboxAddress := UserInfo.UserPrincipalName;
+
+    Details :=
+      'Microsoft Graph erfolgreich erreicht.' + sLineBreak + sLineBreak +
+      'Name: ' + UserInfo.DisplayName + sLineBreak +
+      'Konto: ' + MailboxAddress + sLineBreak +
+      'User-ID: ' + UserInfo.ID + sLineBreak +
+      'Access Token: erhalten' + sLineBreak +
+      'Refresh Token: ' + IfThen(Tokens.RefreshToken <> '', 'erhalten', 'nicht erhalten') + sLineBreak +
+      'Gültigkeit: ' + IntToStr(Tokens.ExpiresIn) + ' Sekunden';
+
+    MessageBox(FWindowHandle, PChar(Details), 'MailNotes Graph-Test',
+      MB_OK or MB_ICONINFORMATION);
+  except
+    on E: Exception do
+      MessageBox(FWindowHandle, PChar('Graph-Test fehlgeschlagen:' + sLineBreak + E.Message),
+        'MailNotes Graph-Test', MB_OK or MB_ICONERROR);
   end;
 end;
 
