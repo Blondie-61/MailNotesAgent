@@ -233,7 +233,12 @@ function TGraphCallbackServer.WaitForResult(
 begin
   Result := FEvent.WaitFor(TimeoutMS) = wrSignaled;
   if Result then
-    ResultInfo := FResult
+  begin
+    // HandleGet signalisiert, bevor Indy die HTTP-Antwort vollstaendig
+    // an den Browser uebertragen hat. Den Listener daher nicht sofort abbauen.
+    Sleep(250);
+    ResultInfo := FResult;
+  end
   else
   begin
     ResultInfo := Default(TGraphAuthorizationResult);
