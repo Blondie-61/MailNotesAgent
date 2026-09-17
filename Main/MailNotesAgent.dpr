@@ -1,4 +1,4 @@
-﻿program MailNotesAgent;
+program MailNotesAgent;
 
 {$IF Defined(MSWINDOWS)}
   {$APPTYPE GUI}
@@ -29,6 +29,7 @@ uses
   uDatabase in 'uDatabase.pas',
   uGraphAccounts in 'uGraphAccounts.pas',
   uGraphAuth in 'uGraphAuth.pas',
+  uGraphTokenStore in 'uGraphTokenStore.pas',
   uNote in 'uNote.pas',
   uLinkBuffer in 'uLinkBuffer.pas',
   uRepairQueue in 'uRepairQueue.pas',

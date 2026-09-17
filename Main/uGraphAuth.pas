@@ -50,8 +50,14 @@ type
       out ResultInfo: TGraphAuthorizationResult;
       const TimeoutMS: Cardinal = 120000
     ): Boolean; static;
+    class function ConfiguredTenantID: string; static;
     class function ExchangeAuthorizationCode(
       const AuthorizationCode, Verifier: string;
+      out Tokens: TGraphTokenResult;
+      out ErrorText: string
+    ): Boolean; static;
+    class function RefreshAccessToken(
+      const RefreshToken: string;
       out Tokens: TGraphTokenResult;
       out ErrorText: string
     ): Boolean; static;
@@ -415,6 +421,95 @@ begin
     finally
       Root.Free;
     end;
+    except
+      on E: Exception do
+      begin
+        ErrorText := E.Message;
+        Result := False;
+      end;
+    end;
+  finally
+    Client.Free;
+  end;
+end;
+
+
+class function TGraphAuth.ConfiguredTenantID: string;
+begin
+  Result := TenantID;
+end;
+
+class function TGraphAuth.RefreshAccessToken(
+  const RefreshToken: string;
+  out Tokens: TGraphTokenResult;
+  out ErrorText: string
+): Boolean;
+var
+  Client: THTTPClient;
+  Response: IHTTPResponse;
+  Body: TStringStream;
+  Root: TJSONObject;
+  FormData: string;
+begin
+  Tokens := Default(TGraphTokenResult);
+  ErrorText := '';
+
+  if RefreshToken = '' then
+  begin
+    ErrorText := 'Kein Refresh Token vorhanden.';
+    Exit(False);
+  end;
+
+  FormData :=
+    'client_id=' + UrlEncode(ClientID) +
+    '&scope=' + UrlEncode('openid profile offline_access User.Read Mail.Read') +
+    '&refresh_token=' + UrlEncode(RefreshToken) +
+    '&grant_type=refresh_token';
+
+  Client := THTTPClient.Create;
+  try
+    try
+      Client.ConnectionTimeout := 10000;
+      Client.ResponseTimeout := 30000;
+      Body := TStringStream.Create(FormData, TEncoding.UTF8);
+      try
+        Response := Client.Post(
+          'https://login.microsoftonline.com/' + TenantID + '/oauth2/v2.0/token',
+          Body, nil,
+          [TNameValuePair.Create('Content-Type', 'application/x-www-form-urlencoded')]
+        );
+      finally
+        Body.Free;
+      end;
+
+      Root := TJSONObject.ParseJSONValue(
+        Response.ContentAsString(TEncoding.UTF8)) as TJSONObject;
+      try
+        if Response.StatusCode <> 200 then
+        begin
+          ErrorText := OAuthErrorText(Root, Response.StatusCode, Response.StatusText);
+          Exit(False);
+        end;
+        if Root = nil then
+        begin
+          ErrorText := 'Die Refresh-Antwort ist kein gültiges JSON.';
+          Exit(False);
+        end;
+
+        Tokens.AccessToken := JsonString(Root, 'access_token');
+        Tokens.RefreshToken := JsonString(Root, 'refresh_token');
+        Tokens.TokenType := JsonString(Root, 'token_type');
+        Tokens.Scope := JsonString(Root, 'scope');
+        Tokens.ExpiresIn := JsonInteger(Root, 'expires_in');
+        if Tokens.AccessToken = '' then
+        begin
+          ErrorText := 'Die Refresh-Antwort enthält kein Access Token.';
+          Exit(False);
+        end;
+        Result := True;
+      finally
+        Root.Free;
+      end;
     except
       on E: Exception do
       begin

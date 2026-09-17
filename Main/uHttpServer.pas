@@ -93,6 +93,7 @@ type
     procedure Stop;
     function ChangeDatabasePath(const APath: string; out AMode: string): string;
     function CreateDatabaseBackup(const ADestinationDirectory: string; const ARetentionCount: Integer = 0): string;
+    property Database: TDatabase read FDatabase;
   end;
 
 implementation

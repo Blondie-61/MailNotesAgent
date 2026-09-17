@@ -1,4 +1,4 @@
-﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
         <ProjectGuid>{1E0880E8-2087-4933-9713-43581B6D27D4}</ProjectGuid>
         <ProjectVersion>20.4</ProjectVersion>
@@ -280,6 +280,7 @@
         <DCCReference Include="uDatabase.pas"/>
         <DCCReference Include="uGraphAccounts.pas"/>
         <DCCReference Include="uGraphAuth.pas"/>
+        <DCCReference Include="uGraphTokenStore.pas"/>
         <DCCReference Include="uNote.pas"/>
         <DCCReference Include="uLinkBuffer.pas"/>
         <DCCReference Include="uRepairQueue.pas"/>
