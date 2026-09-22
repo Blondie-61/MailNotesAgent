@@ -43,6 +43,8 @@ type
     procedure autoBackupInterval2; cdecl;
     procedure autoBackupInterval3; cdecl;
     procedure autoBackupOff; cdecl;
+    procedure testGraphAuthorization; cdecl;
+    procedure testGraphRefresh; cdecl;
   end;
 
   TTrayIcon = class;
@@ -66,6 +68,8 @@ type
     procedure autoBackupInterval2; cdecl;
     procedure autoBackupInterval3; cdecl;
     procedure autoBackupOff; cdecl;
+    procedure testGraphAuthorization; cdecl;
+    procedure testGraphRefresh; cdecl;
   end;
 {$ENDIF}
 
@@ -155,6 +159,8 @@ type
     function SelectBackupDirectory(out ADirectory: string): Boolean;
     procedure RevealBackupDirectoryInFinder;
     procedure ShowMacMessage(const AMessage, ADetails: string);
+    procedure TestGraphAuthorization;
+    procedure TestGraphRefresh;
     function IconFileName: string;
     function StatusText: string;
 {$ENDIF}
@@ -193,7 +199,10 @@ uses
 {$ELSEIF Defined(MACOS)}
   , Macapi.Helpers,
   Macapi.ObjCRuntime,
-  uAppInfo
+  uAppInfo,
+  uGraphAuth,
+  uGraphTokenStore,
+  uGraphAccounts
 {$ENDIF}
   ;
 
@@ -386,12 +395,12 @@ begin
   AppendMenu(FPopupMenu, MF_STRING, MENU_TEST_GRAPH_AUTH, 'Graph-Anmeldung testen ...');
   AppendMenu(FPopupMenu, MF_STRING, MENU_TEST_GRAPH_REFRESH, 'Graph-Refresh testen ...');
   AppendMenu(FPopupMenu, MF_SEPARATOR, 0, nil);
-  AppendMenu(FPopupMenu, MF_STRING, MENU_OPEN_DATA, 'Datenordner öffnen');
-  AppendMenu(FPopupMenu, MF_STRING, MENU_OPEN_LOG, 'Logdatei öffnen');
-  AppendMenu(FPopupMenu, MF_STRING, MENU_CHANGE_DATABASE, 'Datenbankpfad ändern...');
+  AppendMenu(FPopupMenu, MF_STRING, MENU_OPEN_DATA, 'Datenordner ' + WideChar($00F6) + 'ffnen');
+  AppendMenu(FPopupMenu, MF_STRING, MENU_OPEN_LOG, 'Logdatei ' + WideChar($00F6) + 'ffnen');
+  AppendMenu(FPopupMenu, MF_STRING, MENU_CHANGE_DATABASE, 'Datenbankpfad ' + WideChar($00E4) + 'ndern...');
   AppendMenu(FPopupMenu, MF_SEPARATOR, 0, nil);
   AppendMenu(FPopupMenu, MF_STRING, MENU_BACKUP_DATABASE, 'Datenbank sichern ...');
-  AppendMenu(FPopupMenu, MF_STRING, MENU_CHANGE_BACKUP_DIRECTORY, 'Backup-Ziel ändern ...');
+  AppendMenu(FPopupMenu, MF_STRING, MENU_CHANGE_BACKUP_DIRECTORY, 'Backup-Ziel ' + WideChar($00E4) + 'ndern ...');
 
   FBackupAutoMenu := CreatePopupMenu;
   if FBackupAutoMenu = 0 then
@@ -775,6 +784,7 @@ begin
 end;
 
 
+
 procedure TTrayIcon.SetAutoBackupIntervalByIndex(const AIndex: Integer);
 var
   Intervals: TBackupIntervals;
@@ -833,7 +843,7 @@ begin
   FillChar(BrowseInfo, SizeOf(BrowseInfo), 0);
   FillChar(PathBuffer, SizeOf(PathBuffer), 0);
   BrowseInfo.hwndOwner := FWindowHandle;
-  BrowseInfo.lpszTitle := 'Backup-Ziel für MailNotes auswählen';
+  BrowseInfo.lpszTitle := 'Backup-Ziel f' + WideChar($00FC) + 'r MailNotes ausw' + WideChar($00E4) + 'hlen';
   BrowseInfo.ulFlags := BIF_RETURNONLYFSDIRS or BIF_NEWDIALOGSTYLE;
 
   ItemIDList := SHBrowseForFolderW(BrowseInfo);
@@ -909,7 +919,7 @@ begin
   begin
     MessageBoxW(
       FWindowHandle,
-      'Der HTTP-Server ist nicht verfügbar.',
+      'Der HTTP-Server ist nicht verf' + WideChar($00FC) + 'gbar.',
       'Datenbankpfad kann nicht geändert werden',
       MB_OK or MB_ICONERROR
     );
@@ -934,7 +944,7 @@ begin
   Dialog.lpstrFile := @FileBuffer[0];
   Dialog.nMaxFile := FILE_BUFFER_CHARS;
   Dialog.lpstrInitialDir := PWideChar(InitialDir);
-  Dialog.lpstrTitle := 'MailNotes-Datenbank auswählen';
+  Dialog.lpstrTitle := 'MailNotes-Datenbank ausw' + WideChar($00E4) + 'hlen';
   Dialog.lpstrDefExt := 'sqlite';
   Dialog.Flags := OFN_EXPLORER or OFN_PATHMUSTEXIST or OFN_HIDEREADONLY;
 
@@ -953,11 +963,11 @@ begin
     NewPath := FHttpServer.ChangeDatabasePath(NewPath, Mode);
 
     if SameText(Mode, 'adopted') then
-      InfoText := 'Die vorhandene Datenbank wurde übernommen.'
+      InfoText := 'Die vorhandene Datenbank wurde ' + WideChar($00FC) + 'bernommen.'
     else if SameText(Mode, 'moved') then
-      InfoText := 'Die bisherige Datenbank wurde an den neuen Ort kopiert und übernommen.'
+      InfoText := 'Die bisherige Datenbank wurde an den neuen Ort kopiert und ' + WideChar($00FC) + 'bernommen.'
     else
-      InfoText := 'Der Datenbankpfad ist unverändert.';
+      InfoText := 'Der Datenbankpfad ist unver' + WideChar($00E4) + 'ndert.';
 
     MessageBoxW(
       FWindowHandle,
@@ -1483,6 +1493,18 @@ begin
   end;
 end;
 
+procedure TMacMenuHandler.testGraphAuthorization;
+begin
+  if FOwner <> nil then
+    FOwner.TestGraphAuthorization;
+end;
+
+procedure TMacMenuHandler.testGraphRefresh;
+begin
+  if FOwner <> nil then
+    FOwner.TestGraphRefresh;
+end;
+
 
 constructor TTrayIcon.Create(AHttpServer: THttpServer);
 begin
@@ -1544,7 +1566,7 @@ begin
   FStatusItem := FStatusBar.statusItemWithLength(NSVariableStatusItemLength);
 
   if FStatusItem = nil then
-    raise Exception.Create('Das macOS-Menüleistenicon konnte nicht angelegt werden.');
+    raise Exception.Create('Das macOS-Men' + WideChar($00FC) + 'leistenicon konnte nicht angelegt werden.');
 
   // NSStatusBar hält das Statusitem nicht selbst fest. Ohne retain kann es
   // deshalb wieder aus der Menüleiste verschwinden.
@@ -1615,8 +1637,30 @@ begin
 
   MenuItem := TNSMenuItem.Wrap(
     TNSMenuItem.Alloc.initWithTitle(
-      StrToNSStr('MailNotes Agent …'),
+      StrToNSStr('MailNotes Agent ' + WideChar($2026)),
       sel_getUid('showAgentInfo'),
+      StrToNSStr('')
+    )
+  );
+  MenuItem.setTarget(FMenuHandler.GetObjectID);
+  FPopupMenu.addItem(MenuItem);
+  MenuItem.release;
+
+  MenuItem := TNSMenuItem.Wrap(
+    TNSMenuItem.Alloc.initWithTitle(
+      StrToNSStr('Graph-Anmeldung testen ...'),
+      sel_getUid('testGraphAuthorization'),
+      StrToNSStr('')
+    )
+  );
+  MenuItem.setTarget(FMenuHandler.GetObjectID);
+  FPopupMenu.addItem(MenuItem);
+  MenuItem.release;
+
+  MenuItem := TNSMenuItem.Wrap(
+    TNSMenuItem.Alloc.initWithTitle(
+      StrToNSStr('Graph-Refresh testen ...'),
+      sel_getUid('testGraphRefresh'),
       StrToNSStr('')
     )
   );
@@ -1630,7 +1674,7 @@ begin
   if (BackupDirectory <> '') and TDirectory.Exists(BackupDirectory) then
     BackupCaption := 'Datenbank sichern'
   else
-    BackupCaption := 'Datenbank sichern …';
+    BackupCaption := 'Datenbank sichern ' + WideChar($2026);
 
   MenuItem := TNSMenuItem.Wrap(
     TNSMenuItem.Alloc.initWithTitle(
@@ -1646,7 +1690,7 @@ begin
 
   MenuItem := TNSMenuItem.Wrap(
     TNSMenuItem.Alloc.initWithTitle(
-      StrToNSStr('Backup-Ziel ändern …'),
+      StrToNSStr('Backup-Ziel ' + WideChar($00E4) + 'ndern ' + WideChar($2026)),
       sel_getUid('changeBackupDirectory'),
       StrToNSStr('')
     )
@@ -1700,7 +1744,7 @@ begin
 
   if NewImage = nil then
     raise Exception.CreateFmt(
-      'Das Menüleistenicon wurde nicht gefunden: %s',
+      'Das Men' + WideChar($00FC) + 'leistenicon wurde nicht gefunden: %s',
       [ImagePath]
     );
 
@@ -1731,7 +1775,186 @@ begin
     if (BackupDirectory <> '') and TDirectory.Exists(BackupDirectory) then
       FBackupMenuItem.setTitle(StrToNSStr('Datenbank sichern'))
     else
-      FBackupMenuItem.setTitle(StrToNSStr('Datenbank sichern …'));
+      FBackupMenuItem.setTitle(StrToNSStr('Datenbank sichern ' + WideChar($2026)));
+  end;
+end;
+
+
+procedure TTrayIcon.TestGraphAuthorization;
+var
+  Verifier: string;
+  AuthResult: TGraphAuthorizationResult;
+  Tokens: TGraphTokenResult;
+  UserInfo: TGraphUserInfo;
+  ErrorText: string;
+  MailboxAddress: string;
+  Details: string;
+  StoredRefreshToken: string;
+  RefreshTokens: TGraphTokenResult;
+  RefreshUserInfo: TGraphUserInfo;
+  GraphAccounts: TGraphAccounts;
+begin
+  try
+    if not TGraphAuth.Authorize(Verifier, AuthResult) then
+    begin
+      Details := 'Graph-Anmeldung fehlgeschlagen.';
+      if AuthResult.Error <> '' then
+        Details := Details + sLineBreak + sLineBreak + 'Fehler: ' + AuthResult.Error;
+      if AuthResult.ErrorDescription <> '' then
+        Details := Details + sLineBreak + AuthResult.ErrorDescription;
+      ShowMacMessage('MailNotes Graph-Test', Details);
+      Exit;
+    end;
+
+    if not TGraphAuth.ExchangeAuthorizationCode(
+      AuthResult.AuthorizationCode, Verifier, Tokens, ErrorText) then
+    begin
+      ShowMacMessage(
+        'MailNotes Graph-Test',
+        'Token-Austausch fehlgeschlagen:' + sLineBreak + sLineBreak + ErrorText
+      );
+      Exit;
+    end;
+
+    if not TGraphAuth.GetMe(Tokens.AccessToken, UserInfo, ErrorText) then
+    begin
+      ShowMacMessage(
+        'MailNotes Graph-Test',
+        'Graph /me fehlgeschlagen:' + sLineBreak + sLineBreak + ErrorText
+      );
+      Exit;
+    end;
+
+    MailboxAddress := UserInfo.Mail;
+    if MailboxAddress = '' then
+      MailboxAddress := UserInfo.UserPrincipalName;
+
+    if Tokens.RefreshToken = '' then
+      raise Exception.Create('Microsoft hat keinen Refresh Token geliefert.');
+
+    TGraphTokenStore.SaveRefreshToken(MailboxAddress, Tokens.RefreshToken);
+    if not TGraphTokenStore.LoadRefreshToken(MailboxAddress, StoredRefreshToken) then
+      raise Exception.Create('Gespeicherter Refresh Token konnte nicht gelesen werden.');
+    if StoredRefreshToken <> Tokens.RefreshToken then
+      raise Exception.Create('Gespeicherter Refresh Token stimmt nicht mit dem Original ueberein.');
+
+    GraphAccounts := TGraphAccounts.Create(FHttpServer.Database);
+    try
+      GraphAccounts.MarkAvailable(
+        MailboxAddress,
+        TGraphAuth.ConfiguredTenantID,
+        UserInfo.ID
+      );
+    finally
+      GraphAccounts.Free;
+    end;
+
+    if not TGraphAuth.RefreshAccessToken(
+      StoredRefreshToken, RefreshTokens, ErrorText) then
+      raise Exception.Create('Token-Refresh fehlgeschlagen: ' + ErrorText);
+
+    if RefreshTokens.RefreshToken <> '' then
+      TGraphTokenStore.SaveRefreshToken(MailboxAddress, RefreshTokens.RefreshToken);
+
+    if not TGraphAuth.GetMe(
+      RefreshTokens.AccessToken, RefreshUserInfo, ErrorText) then
+      raise Exception.Create('Graph /me nach Token-Refresh fehlgeschlagen: ' + ErrorText);
+
+    if not SameText(RefreshUserInfo.ID, UserInfo.ID) then
+      raise Exception.Create('Token-Refresh lieferte einen anderen Graph-Benutzer.');
+
+    GraphAccounts := TGraphAccounts.Create(FHttpServer.Database);
+    try
+      GraphAccounts.MarkAvailable(
+        MailboxAddress,
+        TGraphAuth.ConfiguredTenantID,
+        RefreshUserInfo.ID
+      );
+    finally
+      GraphAccounts.Free;
+    end;
+
+    Details :=
+      'Microsoft Graph erfolgreich erreicht.' + sLineBreak + sLineBreak +
+      'Name: ' + UserInfo.DisplayName + sLineBreak +
+      'Konto: ' + MailboxAddress + sLineBreak +
+      'User-ID: ' + UserInfo.ID + sLineBreak +
+      'Access Token: erhalten' + sLineBreak +
+      'Refresh Token: erhalten' + sLineBreak +
+      'Refresh Token im macOS-Schluesselbund gespeichert: ja' + sLineBreak +
+      'Refresh ohne Browser: erfolgreich' + sLineBreak +
+      'GraphAccount: Available' + sLineBreak +
+      'Gueltigkeit: ' + IntToStr(Tokens.ExpiresIn) + ' Sekunden';
+
+    ShowMacMessage('MailNotes Graph-Test', Details);
+  except
+    on E: Exception do
+      ShowMacMessage('MailNotes Graph-Test', 'Graph-Test fehlgeschlagen:' + sLineBreak + E.Message);
+  end;
+end;
+
+
+procedure TTrayIcon.TestGraphRefresh;
+var
+  GraphAccounts: TGraphAccounts;
+  Account: TGraphAccount;
+  StoredRefreshToken: string;
+  Tokens: TGraphTokenResult;
+  UserInfo: TGraphUserInfo;
+  ErrorText: string;
+  MailboxAddress: string;
+  Details: string;
+begin
+  try
+    GraphAccounts := TGraphAccounts.Create(FHttpServer.Database);
+    try
+      if not GraphAccounts.TryGet('gerhard@waldhelm.name', Account) then
+        raise Exception.Create('Kein GraphAccount fuer gerhard@waldhelm.name gefunden.');
+    finally
+      GraphAccounts.Free;
+    end;
+
+    MailboxAddress := Account.MailboxAddress;
+    if not TGraphTokenStore.LoadRefreshToken(MailboxAddress, StoredRefreshToken) then
+      raise Exception.Create('Kein gespeicherter Refresh Token fuer ' + MailboxAddress + ' gefunden.');
+
+    if not TGraphAuth.RefreshAccessToken(StoredRefreshToken, Tokens, ErrorText) then
+      raise Exception.Create('Token-Refresh fehlgeschlagen: ' + ErrorText);
+
+    if Tokens.RefreshToken <> '' then
+      TGraphTokenStore.SaveRefreshToken(MailboxAddress, Tokens.RefreshToken);
+
+    if not TGraphAuth.GetMe(Tokens.AccessToken, UserInfo, ErrorText) then
+      raise Exception.Create('Graph /me nach Token-Refresh fehlgeschlagen: ' + ErrorText);
+
+    if (Account.UserID <> '') and (not SameText(Account.UserID, UserInfo.ID)) then
+      raise Exception.Create('Gespeicherter GraphAccount und Refresh Token gehoeren nicht zum selben Benutzer.');
+
+    GraphAccounts := TGraphAccounts.Create(FHttpServer.Database);
+    try
+      GraphAccounts.MarkAvailable(MailboxAddress, TGraphAuth.ConfiguredTenantID, UserInfo.ID);
+    finally
+      GraphAccounts.Free;
+    end;
+
+    Details :=
+      'Persistente Graph-Anmeldung erfolgreich.' + sLineBreak + sLineBreak +
+      'Konto: ' + MailboxAddress + sLineBreak +
+      'Name: ' + UserInfo.DisplayName + sLineBreak +
+      'User-ID: ' + UserInfo.ID + sLineBreak +
+      'Refresh Token aus macOS-Schluesselbund: ja' + sLineBreak +
+      'Browser/PKCE: nicht verwendet' + sLineBreak +
+      'Graph /me: erfolgreich' + sLineBreak +
+      'GraphAccount: Available' + sLineBreak +
+      'Gueltigkeit: ' + IntToStr(Tokens.ExpiresIn) + ' Sekunden';
+
+    ShowMacMessage('MailNotes Graph-Refresh-Test', Details);
+  except
+    on E: Exception do
+      ShowMacMessage(
+        'MailNotes Graph-Refresh-Test',
+        'Graph-Refresh-Test fehlgeschlagen:' + sLineBreak + E.Message
+      );
   end;
 end;
 
@@ -1866,7 +2089,7 @@ begin
     FDatabaseLink.release;
 
     ChangeButton := NewButton(
-      'Pfad ändern …',
+      'Pfad ' + WideChar($00E4) + 'ndern ' + WideChar($2026),
       'changeDatabasePath',
       465, 191, 130, 26
     );
@@ -1898,7 +2121,7 @@ begin
     FBackupDirectoryLink.release;
 
     ChangeButton := NewButton(
-      'Ziel ändern …',
+      'Ziel ' + WideChar($00E4) + 'ndern ' + WideChar($2026),
       'changeBackupDirectory',
       465, 63, 130, 26
     );
@@ -2091,8 +2314,8 @@ begin
   ADirectory := '';
 
   Panel := TNSOpenPanel.Wrap(TNSOpenPanel.OCClass.openPanel);
-  Panel.setTitle(StrToNSStr('Backup-Ziel für MailNotes auswählen'));
-  Panel.setPrompt(StrToNSStr('Auswählen'));
+  Panel.setTitle(StrToNSStr('Backup-Ziel f' + WideChar($00FC) + 'r MailNotes ausw' + WideChar($00E4) + 'hlen'));
+  Panel.setPrompt(StrToNSStr('Ausw' + WideChar($00E4) + 'hlen'));
   Panel.setCanChooseDirectories(True);
   Panel.setCanChooseFiles(False);
   Panel.setAllowsMultipleSelection(False);
@@ -2143,7 +2366,7 @@ var
 begin
   if FHttpServer = nil then
   begin
-    ShowMacMessage('Backup fehlgeschlagen', 'Der HTTP-Server ist nicht verfügbar.');
+    ShowMacMessage('Backup fehlgeschlagen', 'Der HTTP-Server ist nicht verf' + WideChar($00FC) + 'gbar.');
     Exit;
   end;
 
@@ -2182,18 +2405,18 @@ begin
   if FHttpServer = nil then
   begin
     ShowMacMessage(
-      'Datenbankpfad kann nicht geändert werden.',
-      'Der HTTP-Server ist nicht verfügbar.'
+      'Datenbankpfad kann nicht ge' + WideChar($00E4) + 'ndert werden.',
+      'Der HTTP-Server ist nicht verf' + WideChar($00FC) + 'gbar.'
     );
     Exit;
   end;
 
   Panel := TNSOpenPanel.Wrap(TNSOpenPanel.OCClass.openPanel);
-  Panel.setTitle(StrToNSStr('MailNotes-Datenbank auswählen'));
+  Panel.setTitle(StrToNSStr('MailNotes-Datenbank ausw' + WideChar($00E4) + 'hlen'));
   Panel.setMessage(StrToNSStr(
-    'Wähle einen Ordner für MailNotes.sqlite oder eine vorhandene SQLite-Datenbank aus.'
+    'W' + WideChar($00E4) + 'hle einen Ordner f' + WideChar($00FC) + 'r MailNotes.sqlite oder eine vorhandene SQLite-Datenbank aus.'
   ));
-  Panel.setPrompt(StrToNSStr('Auswählen'));
+  Panel.setPrompt(StrToNSStr('Ausw' + WideChar($00E4) + 'hlen'));
   Panel.setCanChooseDirectories(True);
   Panel.setCanChooseFiles(True);
   Panel.setAllowsMultipleSelection(False);
@@ -2219,11 +2442,11 @@ begin
       FDatabaseLink.setTitle(StrToNSStr(NewPath));
 
     if SameText(Mode, 'adopted') then
-      InfoText := 'Die vorhandene Datenbank wurde übernommen.'
+      InfoText := 'Die vorhandene Datenbank wurde ' + WideChar($00FC) + 'bernommen.'
     else if SameText(Mode, 'moved') then
-      InfoText := 'Die bisherige Datenbank wurde an den neuen Ort kopiert und übernommen.'
+      InfoText := 'Die bisherige Datenbank wurde an den neuen Ort kopiert und ' + WideChar($00FC) + 'bernommen.'
     else
-      InfoText := 'Der Datenbankpfad ist unverändert.';
+      InfoText := 'Der Datenbankpfad ist unver' + WideChar($00E4) + 'ndert.';
 
     ShowMacMessage(
       'Datenbankpfad aktualisiert',
@@ -2232,7 +2455,7 @@ begin
   except
     on E: Exception do
       ShowMacMessage(
-        'Datenbankpfad konnte nicht geändert werden.',
+        'Datenbankpfad konnte nicht ge' + WideChar($00E4) + 'ndert werden.',
         E.Message
       );
   end;
@@ -2249,7 +2472,7 @@ begin
       Result := 'Status: Fehler';
 
     tsUpdateAvailable:
-      Result := 'Status: Update verfügbar';
+      Result := 'Status: Update verf' + WideChar($00FC) + 'gbar';
   else
     Result := 'Status: Bereit';
   end;

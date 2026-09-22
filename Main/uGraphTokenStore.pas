@@ -32,6 +32,8 @@ uses
   uAppPaths
 {$IF Defined(MSWINDOWS)}
   , Winapi.Windows
+{$ELSEIF Defined(MACOS)}
+  , Macapi.CoreFoundation
 {$ENDIF}
   ;
 
@@ -65,6 +67,64 @@ function CryptUnprotectData(
 
 const
   CRYPTPROTECT_UI_FORBIDDEN = $00000001;
+{$ENDIF}
+
+{$IF Defined(MACOS)}
+type
+  OSStatus = Integer;
+  SecKeychainItemRef = Pointer;
+  PSecKeychainItemRef = ^SecKeychainItemRef;
+
+const
+  errSecSuccess = 0;
+  errSecItemNotFound = -25300;
+  GraphKeychainService = 'MailNotes Microsoft Graph';
+
+function SecKeychainAddGenericPassword(
+  keychain: Pointer;
+  serviceNameLength: UInt32;
+  serviceName: Pointer;
+  accountNameLength: UInt32;
+  accountName: Pointer;
+  passwordLength: UInt32;
+  passwordData: Pointer;
+  itemRef: PSecKeychainItemRef
+): OSStatus; cdecl; external '/System/Library/Frameworks/Security.framework/Security';
+
+function SecKeychainFindGenericPassword(
+  keychainOrArray: Pointer;
+  serviceNameLength: UInt32;
+  serviceName: Pointer;
+  accountNameLength: UInt32;
+  accountName: Pointer;
+  passwordLength: PUInt32;
+  passwordData: PPointer;
+  itemRef: PSecKeychainItemRef
+): OSStatus; cdecl; external '/System/Library/Frameworks/Security.framework/Security';
+
+function SecKeychainItemModifyAttributesAndData(
+  itemRef: SecKeychainItemRef;
+  attrList: Pointer;
+  length: UInt32;
+  data: Pointer
+): OSStatus; cdecl; external '/System/Library/Frameworks/Security.framework/Security';
+
+function SecKeychainItemDelete(
+  itemRef: SecKeychainItemRef
+): OSStatus; cdecl; external '/System/Library/Frameworks/Security.framework/Security';
+
+function SecKeychainItemFreeContent(
+  attrList: Pointer;
+  data: Pointer
+): OSStatus; cdecl; external '/System/Library/Frameworks/Security.framework/Security';
+
+procedure RaiseKeychainError(const Operation: string; const Status: OSStatus);
+begin
+  raise Exception.CreateFmt(
+    'macOS Keychain: %s fehlgeschlagen (OSStatus %d).',
+    [Operation, Status]
+  );
+end;
 {$ENDIF}
 
 class function TGraphTokenStore.TokenFileName(
@@ -133,6 +193,59 @@ begin
       LocalFree(HLOCAL(OutputBlob.pbData));
   end;
 end;
+{$ELSEIF Defined(MACOS)}
+var
+  ServiceUTF8: UTF8String;
+  AccountUTF8: UTF8String;
+  TokenUTF8: UTF8String;
+  ItemRef: SecKeychainItemRef;
+  Status: OSStatus;
+begin
+  if Trim(MailboxAddress) = '' then
+    raise EArgumentException.Create('MailboxAddress darf nicht leer sein.');
+  if RefreshToken = '' then
+    raise EArgumentException.Create('RefreshToken darf nicht leer sein.');
+
+  ServiceUTF8 := UTF8String(GraphKeychainService);
+  AccountUTF8 := UTF8String(Trim(LowerCase(MailboxAddress)));
+  TokenUTF8 := UTF8String(RefreshToken);
+  ItemRef := nil;
+
+  Status := SecKeychainFindGenericPassword(
+    nil,
+    Length(ServiceUTF8), PAnsiChar(ServiceUTF8),
+    Length(AccountUTF8), PAnsiChar(AccountUTF8),
+    nil, nil, @ItemRef
+  );
+
+  if Status = errSecSuccess then
+  begin
+    try
+      Status := SecKeychainItemModifyAttributesAndData(
+        ItemRef, nil, Length(TokenUTF8), PAnsiChar(TokenUTF8)
+      );
+      if Status <> errSecSuccess then
+        RaiseKeychainError('Refresh Token aktualisieren', Status);
+    finally
+      if ItemRef <> nil then
+        CFRelease(ItemRef);
+    end;
+    Exit;
+  end;
+
+  if Status <> errSecItemNotFound then
+    RaiseKeychainError('Refresh Token suchen', Status);
+
+  Status := SecKeychainAddGenericPassword(
+    nil,
+    Length(ServiceUTF8), PAnsiChar(ServiceUTF8),
+    Length(AccountUTF8), PAnsiChar(AccountUTF8),
+    Length(TokenUTF8), PAnsiChar(TokenUTF8),
+    nil
+  );
+  if Status <> errSecSuccess then
+    RaiseKeychainError('Refresh Token speichern', Status);
+end;
 {$ELSE}
 begin
   raise ENotSupportedException.Create(
@@ -189,6 +302,44 @@ begin
       LocalFree(HLOCAL(OutputBlob.pbData));
   end;
 end;
+{$ELSEIF Defined(MACOS)}
+var
+  ServiceUTF8: UTF8String;
+  AccountUTF8: UTF8String;
+  PasswordLength: UInt32;
+  PasswordData: Pointer;
+  Status: OSStatus;
+  TokenBytes: TBytes;
+begin
+  RefreshToken := '';
+  ServiceUTF8 := UTF8String(GraphKeychainService);
+  AccountUTF8 := UTF8String(Trim(LowerCase(MailboxAddress)));
+  PasswordLength := 0;
+  PasswordData := nil;
+
+  Status := SecKeychainFindGenericPassword(
+    nil,
+    Length(ServiceUTF8), PAnsiChar(ServiceUTF8),
+    Length(AccountUTF8), PAnsiChar(AccountUTF8),
+    @PasswordLength, @PasswordData, nil
+  );
+
+  if Status = errSecItemNotFound then
+    Exit(False);
+  if Status <> errSecSuccess then
+    RaiseKeychainError('Refresh Token lesen', Status);
+
+  try
+    SetLength(TokenBytes, PasswordLength);
+    if PasswordLength > 0 then
+      Move(PasswordData^, TokenBytes[0], PasswordLength);
+    RefreshToken := TEncoding.UTF8.GetString(TokenBytes);
+    Result := RefreshToken <> '';
+  finally
+    if PasswordData <> nil then
+      SecKeychainItemFreeContent(nil, PasswordData);
+  end;
+end;
 {$ELSE}
 begin
   RefreshToken := '';
@@ -199,6 +350,7 @@ end;
 class procedure TGraphTokenStore.DeleteRefreshToken(
   const MailboxAddress: string
 );
+{$IF Defined(MSWINDOWS)}
 var
   FileName: string;
 begin
@@ -206,5 +358,41 @@ begin
   if TFile.Exists(FileName) then
     TFile.Delete(FileName);
 end;
+{$ELSEIF Defined(MACOS)}
+var
+  ServiceUTF8: UTF8String;
+  AccountUTF8: UTF8String;
+  ItemRef: SecKeychainItemRef;
+  Status: OSStatus;
+begin
+  ServiceUTF8 := UTF8String(GraphKeychainService);
+  AccountUTF8 := UTF8String(Trim(LowerCase(MailboxAddress)));
+  ItemRef := nil;
+
+  Status := SecKeychainFindGenericPassword(
+    nil,
+    Length(ServiceUTF8), PAnsiChar(ServiceUTF8),
+    Length(AccountUTF8), PAnsiChar(AccountUTF8),
+    nil, nil, @ItemRef
+  );
+
+  if Status = errSecItemNotFound then
+    Exit;
+  if Status <> errSecSuccess then
+    RaiseKeychainError('Refresh Token suchen', Status);
+
+  try
+    Status := SecKeychainItemDelete(ItemRef);
+    if Status <> errSecSuccess then
+      RaiseKeychainError('Refresh Token loeschen', Status);
+  finally
+    if ItemRef <> nil then
+      CFRelease(ItemRef);
+  end;
+end;
+{$ELSE}
+begin
+end;
+{$ENDIF}
 
 end.

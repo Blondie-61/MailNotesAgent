@@ -29,7 +29,9 @@ uses
   uRepairQueue,
   uAppPaths,
   uAppInfo,
-  uRuntimeConfig;
+  uRuntimeConfig,
+  uGML,
+  uGraphAccounts;
 
 type
   THttpServer = class
@@ -565,6 +567,9 @@ var
   MailNotesID: string;
   MessageID: string;
   Note: TNote;
+  GraphAccounts: TGraphAccounts;
+  GraphAccount: TGraphAccount;
+  GMLActive: Boolean;
 begin
   MailNotesID := ARequestInfo.Params.Values['mailNotesId'];
   MessageID := ARequestInfo.Params.Values['messageId'];
@@ -587,16 +592,32 @@ begin
       Exit;
     end;
 
+    // GML ist fuer die Anzeige nur dann aktiv, wenn diese konkrete Mail eine
+    // ImmutableID besitzt UND Graph fuer ihr Konto aktuell verfuegbar ist.
+    // Die parallel gespeicherte SRL/ItemID bleibt davon unberuehrt.
+    GMLActive := False;
+    if (Note.ImmutableID <> '') and (Note.MailboxAddress <> '') then
+    begin
+      GraphAccounts := TGraphAccounts.Create(FDatabase);
+      try
+        GMLActive := GraphAccounts.TryGet(Note.MailboxAddress, GraphAccount) and
+          (GraphAccount.State = gsAvailable);
+      finally
+        GraphAccounts.Free;
+      end;
+    end;
+
     // Eine Mail kann bereits durch einen MailLink bekannt sein, ohne selbst
     // eine Notiz zu besitzen. Die MailNotesID muss trotzdem an das Taskpane
-    // zurückgegeben werden, damit SHL ihre technische Outlook-ID aktualisiert.
+    // zurueckgegeben werden, damit SRL ihre technische Outlook-ID aktualisiert.
     if Note.ID = 0 then
     begin
       SendJson(
         AResponseInfo,
         '{' +
         '"found":false,' +
-        '"mailNotesId":"' + JsonEscape(Note.MailNotesID) + '"' +
+        '"mailNotesId":"' + JsonEscape(Note.MailNotesID) + '",' +
+        '"gmlActive":' + LowerCase(BoolToStr(GMLActive, True)) +
         '}'
       );
       Exit;
@@ -607,6 +628,7 @@ begin
       '{' +
       '"found":true,' +
       '"mailNotesId":"' + JsonEscape(Note.MailNotesID) + '",' +
+      '"gmlActive":' + LowerCase(BoolToStr(GMLActive, True)) + ',' +
       '"content":"' + JsonEscape(Note.Content) + '",' +
       '"links":"' + JsonEscape(Note.Links) + '",' +
       '"createdAt":"' + JsonEscape(Note.CreatedAt) + '",' +
@@ -690,6 +712,29 @@ begin
     Note.Content := ARequestInfo.Params.Values['content'];
     Note.Links := ARequestInfo.Params.Values['links'];
 
+    // GML ist optional und kontoabhaengig. Ein Fehlschlag darf das Speichern
+    // und den vorhandenen SRL-Weg niemals blockieren.
+    var GMLError: string;
+    if (Note.ImmutableID = '') and (Note.ItemID <> '') and
+       (Note.MailboxAddress <> '') then
+    begin
+      if TGML.TryEnrichMailIdentity(FDatabase, Note, GMLError) then
+        LogToFile(
+          'Agent',
+          'GML enriched',
+          'mailNotesId=' + Note.MailNotesID +
+          ' mailbox=' + Note.MailboxAddress
+        )
+      else
+        LogToFile(
+          'Agent',
+          'GML enrichment skipped',
+          'mailNotesId=' + Note.MailNotesID +
+          ' mailbox=' + Note.MailboxAddress +
+          ' reason=' + GMLError
+        );
+    end;
+
     FDatabase.Save(Note);
 
     SendJson(
@@ -697,7 +742,8 @@ begin
       '{' +
       '"saved":true,' +
       '"id":' + Note.ID.ToString + ',' +
-      '"mailNotesId":"' + JsonEscape(Note.MailNotesID) + '"' +
+      '"mailNotesId":"' + JsonEscape(Note.MailNotesID) + '",' +
+      '"gmlActive":' + LowerCase(BoolToStr(Note.ImmutableID <> '', True)) +
       '}'
     );
   finally
@@ -828,6 +874,8 @@ var
   Link: string;
   Token: string;
   Note: TNote;
+  OldItemID: string;
+  GMLError: string;
 begin
   Link := ARequestInfo.Params.Values['link'];
   if Link = '' then
@@ -855,6 +903,36 @@ begin
     begin
       SendJson(AResponseInfo, '{"found":false,"type":"mail"}');
       Exit;
+    end;
+
+    // Wenn eine GML vorhanden ist, wird daraus vor dem Oeffnen die aktuelle
+    // SRL/EWS-ID ermittelt. Ein Graph-Fehler blockiert den bisherigen SRL-Weg
+    // nicht; in diesem Fall wird die gespeicherte ItemID unveraendert geliefert.
+    if (Note.ImmutableID <> '') and (Note.MailboxAddress <> '') then
+    begin
+      OldItemID := Note.ItemID;
+      if TGML.TryRefreshSRLFromGML(FDatabase, Note, GMLError) then
+      begin
+        // Eine vorhandene GML kann eine veraltete SRL selbst reparieren.
+        // Ein alter manueller RepairQueue-Eintrag ist damit erledigt.
+        FDatabase.CompleteRepairQueueByIdentity(Note.MailNotesID, Note.MessageID);
+
+        if not SameText(OldItemID, Note.ItemID) then
+          LogToFile(
+            'Agent',
+            'GML repaired SRL',
+            'mailNotesId=' + Note.MailNotesID +
+            ' mailbox=' + Note.MailboxAddress
+          );
+      end
+      else
+        LogToFile(
+          'Agent',
+          'GML SRL refresh skipped',
+          'mailNotesId=' + Note.MailNotesID +
+          ' mailbox=' + Note.MailboxAddress +
+          ' reason=' + GMLError
+        );
     end;
 
     SendJson(

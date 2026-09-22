@@ -203,6 +203,13 @@ begin
   if not FConnection.Connected then
     FConnection.Connected := True;
 
+  // FireDAC/SQLite may keep the database in exclusive locking mode. In WAL
+  // mode that also suppresses the shared-memory (-shm) file and prevents
+  // other processes from opening the database while MailNotes is running.
+  // Force normal locking before enabling WAL so external readers can coexist.
+  FConnection.ExecSQL('PRAGMA locking_mode = NORMAL');
+  FConnection.ExecSQL('PRAGMA journal_mode = WAL');
+  FConnection.ExecSQL('PRAGMA synchronous = NORMAL');
   FConnection.ExecSQL('PRAGMA foreign_keys = ON');
   EnsureSchema;
 end;
@@ -2182,7 +2189,16 @@ end;
 function TDatabase.GetRepairQueueCount: Integer;
 begin
   Result := FConnection.ExecSQLScalar(
-    'SELECT COUNT(*) FROM SHLRepairQueue WHERE Status IN (0, 1)'
+    'SELECT COUNT(*)' +
+    ' FROM SHLRepairQueue q' +
+    ' LEFT JOIN Mail m ON m.MailNotesID = q.MailNotesID' +
+    ' LEFT JOIN GraphAccount g' +
+    '   ON lower(g.MailboxAddress) = lower(m.MailboxAddress)' +
+    ' WHERE q.Status IN (0, 1)' +
+    '   AND NOT (' +
+    '     COALESCE(m.ImmutableID, '''') <> ''''' +
+    '     AND COALESCE(g.GraphState, 0) = 1' +
+    '   )'
   );
 end;
 
@@ -2366,8 +2382,16 @@ begin
       'SELECT ID, MailNotesID, OldItemID, InternetMessageID, Subject,' +
       ' SenderName, SenderAddress, ReceivedUTC, Reason, CreatedUTC,' +
       ' ModifiedUTC, RetryCount, Status' +
-      ' FROM SHLRepairQueue WHERE Status IN (0, 1)' +
-      ' ORDER BY CreatedUTC, ID';
+      ' FROM SHLRepairQueue q' +
+      ' LEFT JOIN Mail m ON m.MailNotesID = q.MailNotesID' +
+      ' LEFT JOIN GraphAccount g' +
+      '   ON lower(g.MailboxAddress) = lower(m.MailboxAddress)' +
+      ' WHERE q.Status IN (0, 1)' +
+      '   AND NOT (' +
+      '     COALESCE(m.ImmutableID, '''') <> ''''' +
+      '     AND COALESCE(g.GraphState, 0) = 1' +
+      '   )' +
+      ' ORDER BY q.CreatedUTC, q.ID';
     Query.Open;
 
     while not Query.Eof do

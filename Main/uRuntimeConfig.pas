@@ -53,7 +53,7 @@ end;
 
 class function TRuntimeConfig.EnableLogging: Boolean;
 begin
-  Result := False;
+  Result := True;
 end;
 
 class function TRuntimeConfig.IsAllowedCorsOrigin(const AOrigin: string): Boolean;

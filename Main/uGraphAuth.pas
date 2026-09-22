@@ -1,4 +1,4 @@
-unit uGraphAuth;
+﻿unit uGraphAuth;
 
 interface
 
@@ -307,19 +307,23 @@ class procedure TGraphAuth.OpenBrowser(const URL: string);
 {$IF Defined(MACOS)}
 var
   Workspace: NSWorkspace;
-  NSUrl: NSURL;
+  URLObject: NSUrl;
 {$ENDIF}
 begin
 {$IF Defined(MSWINDOWS)}
-  if ShellExecuteW(0, 'open', PWideChar(URL), nil, nil, SW_SHOWNORMAL) <= 32 then
+  if ShellExecute(0, 'open', PWideChar(URL), nil, nil, SW_SHOWNORMAL) <= 32 then
     raise Exception.Create('Browser für Graph-Anmeldung konnte nicht geöffnet werden.');
 {$ELSEIF Defined(MACOS)}
   Workspace := TNSWorkspace.Wrap(TNSWorkspace.OCClass.sharedWorkspace);
-  NSUrl := TNSURL.Wrap(TNSURL.OCClass.URLWithString(StrToNSStr(URL)));
-  if (NSUrl = nil) or not Workspace.openURL(NSUrl) then
+  URLObject := TNSUrl.Wrap(
+    TNSUrl.OCClass.URLWithString(NSStr(URL))
+  );
+
+  if URLObject = nil then
+    raise Exception.Create('Ungültige Graph-Anmelde-URL.');
+
+  if not Workspace.openURL(URLObject) then
     raise Exception.Create('Browser für Graph-Anmeldung konnte nicht geöffnet werden.');
-{$ELSE}
-  raise Exception.Create('Graph-Anmeldung wird auf dieser Plattform nicht unterstützt.');
 {$ENDIF}
 end;
 
