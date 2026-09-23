@@ -2379,9 +2379,9 @@ begin
   try
     Query.Connection := FConnection;
     Query.SQL.Text :=
-      'SELECT ID, MailNotesID, OldItemID, InternetMessageID, Subject,' +
-      ' SenderName, SenderAddress, ReceivedUTC, Reason, CreatedUTC,' +
-      ' ModifiedUTC, RetryCount, Status' +
+      'SELECT q.ID, q.MailNotesID, q.OldItemID, q.InternetMessageID, q.Subject,' +
+      ' q.SenderName, q.SenderAddress, q.ReceivedUTC, q.Reason, q.CreatedUTC,' +
+      ' q.ModifiedUTC, q.RetryCount, q.Status' +
       ' FROM SHLRepairQueue q' +
       ' LEFT JOIN Mail m ON m.MailNotesID = q.MailNotesID' +
       ' LEFT JOIN GraphAccount g' +
