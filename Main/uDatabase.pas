@@ -98,7 +98,8 @@ type
     procedure ClearLinkBuffer;
 
     procedure AddRepairQueueItem(Item: TRepairQueueItem);
-    function GetRepairQueueCount: Integer;
+    function GetRepairQueueCount(const MailboxAddress: string): Integer;
+    function IsGraphAvailable(const MailboxAddress: string): Boolean;
     procedure GetStatistics(
       out NoteCount, MailLinkCount, FavoriteCount, TagCount, PersonCount: Integer
     );
@@ -106,7 +107,7 @@ type
     function GetNoteTags(const MailNotesID: string): TObjectList<TTagInfo>;
     function GetPersons: TObjectList<TPersonInfo>;
     function GetNotePersons(const MailNotesID: string): TObjectList<TPersonInfo>;
-    function GetRepairQueue: TObjectList<TRepairQueueItem>;
+    function GetRepairQueue(const MailboxAddress: string): TObjectList<TRepairQueueItem>;
     procedure SetRepairQueueStatus(const ID, Status: Integer);
     function CompleteRepairQueueByIdentity(const MailNotesID, MessageID: string): Boolean;
 
@@ -1660,6 +1661,14 @@ begin
         Query.ParamByName('MailNotesID').AsString := EffectiveMailNotesID;
         Query.ExecSQL;
 
+        // Ein geloeschter MailNotes-Eintrag darf nicht weiter als offene
+        // Mail-Zuordnung in der Reparaturwarteschlange erscheinen.
+        Query.Close;
+        Query.SQL.Text :=
+          'DELETE FROM SHLRepairQueue WHERE MailNotesID = :MailNotesID';
+        Query.ParamByName('MailNotesID').AsString := EffectiveMailNotesID;
+        Query.ExecSQL;
+
         DeleteUnusedTags;
         DeleteUnusedPersons;
         UpdateSearchEntry(EffectiveMailNotesID);
@@ -2186,20 +2195,54 @@ begin
   end;
 end;
 
-function TDatabase.GetRepairQueueCount: Integer;
+function TDatabase.IsGraphAvailable(const MailboxAddress: string): Boolean;
+var
+  Query: TFDQuery;
 begin
-  Result := FConnection.ExecSQLScalar(
-    'SELECT COUNT(*)' +
-    ' FROM SHLRepairQueue q' +
-    ' LEFT JOIN Mail m ON m.MailNotesID = q.MailNotesID' +
-    ' LEFT JOIN GraphAccount g' +
-    '   ON lower(g.MailboxAddress) = lower(m.MailboxAddress)' +
-    ' WHERE q.Status IN (0, 1)' +
-    '   AND NOT (' +
-    '     COALESCE(m.ImmutableID, '''') <> ''''' +
-    '     AND COALESCE(g.GraphState, 0) = 1' +
-    '   )'
-  );
+  Result := False;
+  if Trim(MailboxAddress) = '' then
+    Exit;
+
+  Query := TFDQuery.Create(nil);
+  try
+    Query.Connection := FConnection;
+    Query.SQL.Text :=
+      'SELECT GraphState FROM GraphAccount' +
+      ' WHERE lower(MailboxAddress) = lower(:MailboxAddress)';
+    Query.ParamByName('MailboxAddress').AsString := Trim(MailboxAddress);
+    Query.Open;
+    Result := (not Query.Eof) and (Query.FieldByName('GraphState').AsInteger = 1);
+  finally
+    Query.Free;
+  end;
+end;
+
+function TDatabase.GetRepairQueueCount(const MailboxAddress: string): Integer;
+var
+  Query: TFDQuery;
+begin
+  Result := 0;
+  Query := TFDQuery.Create(nil);
+  try
+    Query.Connection := FConnection;
+    Query.SQL.Text :=
+      'SELECT COUNT(*) AS RepairCount' +
+      ' FROM SHLRepairQueue q' +
+      ' LEFT JOIN Mail m ON m.MailNotesID = q.MailNotesID' +
+      ' LEFT JOIN GraphAccount g' +
+      '   ON lower(g.MailboxAddress) = lower(m.MailboxAddress)' +
+      ' WHERE q.Status IN (0, 1)' +
+      '   AND lower(COALESCE(m.MailboxAddress, '''')) = lower(:MailboxAddress)' +
+      '   AND NOT (' +
+      '     COALESCE(m.ImmutableID, '''') <> ''''' +
+      '     AND COALESCE(g.GraphState, 0) = 1' +
+      '   )';
+    Query.ParamByName('MailboxAddress').AsString := Trim(MailboxAddress);
+    Query.Open;
+    Result := Query.FieldByName('RepairCount').AsInteger;
+  finally
+    Query.Free;
+  end;
 end;
 
 procedure TDatabase.GetStatistics(
@@ -2369,7 +2412,7 @@ begin
   end;
 end;
 
-function TDatabase.GetRepairQueue: TObjectList<TRepairQueueItem>;
+function TDatabase.GetRepairQueue(const MailboxAddress: string): TObjectList<TRepairQueueItem>;
 var
   Query: TFDQuery;
   Item: TRepairQueueItem;
@@ -2387,11 +2430,13 @@ begin
       ' LEFT JOIN GraphAccount g' +
       '   ON lower(g.MailboxAddress) = lower(m.MailboxAddress)' +
       ' WHERE q.Status IN (0, 1)' +
+      '   AND lower(COALESCE(m.MailboxAddress, '''')) = lower(:MailboxAddress)' +
       '   AND NOT (' +
       '     COALESCE(m.ImmutableID, '''') <> ''''' +
       '     AND COALESCE(g.GraphState, 0) = 1' +
       '   )' +
       ' ORDER BY q.CreatedUTC, q.ID';
+    Query.ParamByName('MailboxAddress').AsString := Trim(MailboxAddress);
     Query.Open;
 
     while not Query.Eof do

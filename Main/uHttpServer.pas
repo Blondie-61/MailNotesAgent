@@ -78,8 +78,8 @@ type
     procedure HandleLinkBufferGet(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleLinkBufferClear(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleRepairQueueAdd(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
-    procedure HandleRepairQueueCount(AResponseInfo: TIdHTTPResponseInfo);
-    procedure HandleRepairQueueList(AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleRepairQueueCount(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleRepairQueueList(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleRepairQueueStatus(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 
     procedure ApplyCors(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
@@ -415,9 +415,9 @@ begin
   else if SameText(ARequestInfo.Document, '/linkbuffer') then
     HandleLinkBufferGet(AResponseInfo)
   else if SameText(ARequestInfo.Document, '/repairqueue/count') then
-    HandleRepairQueueCount(AResponseInfo)
+    HandleRepairQueueCount(ARequestInfo, AResponseInfo)
   else if SameText(ARequestInfo.Document, '/repairqueue') then
-    HandleRepairQueueList(AResponseInfo)
+    HandleRepairQueueList(ARequestInfo, AResponseInfo)
   else
     HandleNotFound(AResponseInfo);
 end;
@@ -1463,22 +1463,30 @@ begin
   end;
 end;
 
-procedure THttpServer.HandleRepairQueueCount(AResponseInfo: TIdHTTPResponseInfo);
+procedure THttpServer.HandleRepairQueueCount(
+  ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+var
+  MailboxAddress: string;
 begin
+  MailboxAddress := Trim(ARequestInfo.Params.Values['mailboxAddress']);
   SendJson(
     AResponseInfo,
-    '{"count":' + FDatabase.GetRepairQueueCount.ToString + '}'
+    '{"count":' + FDatabase.GetRepairQueueCount(MailboxAddress).ToString +
+    ',"gmlActive":' + LowerCase(BoolToStr(FDatabase.IsGraphAvailable(MailboxAddress), True)) + '}'
   );
 end;
 
-procedure THttpServer.HandleRepairQueueList(AResponseInfo: TIdHTTPResponseInfo);
+procedure THttpServer.HandleRepairQueueList(
+  ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 var
   Items: TObjectList<TRepairQueueItem>;
   Item: TRepairQueueItem;
   Json: TStringBuilder;
   IsFirst: Boolean;
+  MailboxAddress: string;
 begin
-  Items := FDatabase.GetRepairQueue;
+  MailboxAddress := Trim(ARequestInfo.Params.Values['mailboxAddress']);
+  Items := FDatabase.GetRepairQueue(MailboxAddress);
   Json := TStringBuilder.Create;
   try
     Json.Append('{"items":[');
