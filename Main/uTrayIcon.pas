@@ -43,8 +43,6 @@ type
     procedure autoBackupInterval2; cdecl;
     procedure autoBackupInterval3; cdecl;
     procedure autoBackupOff; cdecl;
-    procedure testGraphAuthorization; cdecl;
-    procedure testGraphRefresh; cdecl;
   end;
 
   TTrayIcon = class;
@@ -68,8 +66,6 @@ type
     procedure autoBackupInterval2; cdecl;
     procedure autoBackupInterval3; cdecl;
     procedure autoBackupOff; cdecl;
-    procedure testGraphAuthorization; cdecl;
-    procedure testGraphRefresh; cdecl;
   end;
 {$ENDIF}
 
@@ -109,8 +105,6 @@ type
     procedure ExecuteMenuCommand(const CommandID: NativeUInt);
     procedure ShowStatusDialog;
     procedure CheckForUpdates;
-    procedure TestGraphAuthorization;
-    procedure TestGraphRefresh;
     procedure StartAutomaticUpdateCheck;
     procedure HandleAutomaticUpdateResult(const ResultPointer: Pointer);
     procedure ApplyUpdateCheckResult(const CheckResult: TUpdateCheckResult);
@@ -159,8 +153,6 @@ type
     function SelectBackupDirectory(out ADirectory: string): Boolean;
     procedure RevealBackupDirectoryInFinder;
     procedure ShowMacMessage(const AMessage, ADetails: string);
-    procedure TestGraphAuthorization;
-    procedure TestGraphRefresh;
     function IconFileName: string;
     function StatusText: string;
 {$ENDIF}
@@ -192,17 +184,11 @@ uses
   System.Classes,
   System.StrUtils,
   uTrayIconResources,
-  uStatusDialog,
-  uGraphAuth,
-  uGraphTokenStore,
-  uGraphAccounts
+  uStatusDialog
 {$ELSEIF Defined(MACOS)}
   , Macapi.Helpers,
   Macapi.ObjCRuntime,
-  uAppInfo,
-  uGraphAuth,
-  uGraphTokenStore,
-  uGraphAccounts
+  uAppInfo
 {$ENDIF}
   ;
 
@@ -229,8 +215,6 @@ const
   MENU_BACKUP_INTERVAL_3 = 1010;
   MENU_BACKUP_AUTO_OFF = 1011;
   MENU_EXIT = 1012;
-  MENU_TEST_GRAPH_AUTH = 1013;
-  MENU_TEST_GRAPH_REFRESH = 1014;
 
 type
   TAutomaticUpdateResult = record
@@ -392,8 +376,6 @@ begin
   AppendMenu(FPopupMenu, MF_STRING or MF_GRAYED, MENU_STATUS, PChar(StatusText));
   AppendMenu(FPopupMenu, MF_STRING, MENU_SHOW_STATUS, 'Statusinformationen...');
   AppendMenu(FPopupMenu, MF_STRING, MENU_CHECK_UPDATES, 'Nach Updates suchen...');
-  AppendMenu(FPopupMenu, MF_STRING, MENU_TEST_GRAPH_AUTH, 'Graph-Anmeldung testen ...');
-  AppendMenu(FPopupMenu, MF_STRING, MENU_TEST_GRAPH_REFRESH, 'Graph-Refresh testen ...');
   AppendMenu(FPopupMenu, MF_SEPARATOR, 0, nil);
   AppendMenu(FPopupMenu, MF_STRING, MENU_OPEN_DATA, 'Datenordner ' + WideChar($00F6) + 'ffnen');
   AppendMenu(FPopupMenu, MF_STRING, MENU_OPEN_LOG, 'Logdatei ' + WideChar($00F6) + 'ffnen');
@@ -558,12 +540,6 @@ begin
     MENU_CHECK_UPDATES:
       CheckForUpdates;
 
-    MENU_TEST_GRAPH_AUTH:
-      TestGraphAuthorization;
-
-    MENU_TEST_GRAPH_REFRESH:
-      TestGraphRefresh;
-
     MENU_OPEN_DATA:
       OpenDataDirectory;
 
@@ -599,187 +575,6 @@ begin
         RemoveTrayIcon;
         PostQuitMessage(0);
       end;
-  end;
-end;
-
-
-procedure TTrayIcon.TestGraphAuthorization;
-var
-  Verifier: string;
-  AuthResult: TGraphAuthorizationResult;
-  Tokens: TGraphTokenResult;
-  UserInfo: TGraphUserInfo;
-  ErrorText: string;
-  MailboxAddress: string;
-  Details: string;
-  StoredRefreshToken: string;
-  RefreshTokens: TGraphTokenResult;
-  RefreshUserInfo: TGraphUserInfo;
-  GraphAccounts: TGraphAccounts;
-begin
-  try
-    if not TGraphAuth.Authorize(Verifier, AuthResult) then
-    begin
-      Details := 'Graph-Anmeldung fehlgeschlagen.';
-      if AuthResult.Error <> '' then
-        Details := Details + sLineBreak + sLineBreak + 'Fehler: ' + AuthResult.Error;
-      if AuthResult.ErrorDescription <> '' then
-        Details := Details + sLineBreak + AuthResult.ErrorDescription;
-      MessageBox(FWindowHandle, PChar(Details), 'MailNotes Graph-Test',
-        MB_OK or MB_ICONERROR);
-      Exit;
-    end;
-
-    if not TGraphAuth.ExchangeAuthorizationCode(
-      AuthResult.AuthorizationCode, Verifier, Tokens, ErrorText) then
-    begin
-      MessageBox(FWindowHandle,
-        PChar('Token-Austausch fehlgeschlagen:' + sLineBreak + sLineBreak + ErrorText),
-        'MailNotes Graph-Test', MB_OK or MB_ICONERROR);
-      Exit;
-    end;
-
-    if not TGraphAuth.GetMe(Tokens.AccessToken, UserInfo, ErrorText) then
-    begin
-      MessageBox(FWindowHandle,
-        PChar('Graph /me fehlgeschlagen:' + sLineBreak + sLineBreak + ErrorText),
-        'MailNotes Graph-Test', MB_OK or MB_ICONERROR);
-      Exit;
-    end;
-
-    MailboxAddress := UserInfo.Mail;
-    if MailboxAddress = '' then
-      MailboxAddress := UserInfo.UserPrincipalName;
-
-    if Tokens.RefreshToken = '' then
-      raise Exception.Create('Microsoft hat keinen Refresh Token geliefert.');
-
-    TGraphTokenStore.SaveRefreshToken(MailboxAddress, Tokens.RefreshToken);
-    if not TGraphTokenStore.LoadRefreshToken(MailboxAddress, StoredRefreshToken) then
-      raise Exception.Create('Gespeicherter Refresh Token konnte nicht gelesen werden.');
-    if StoredRefreshToken <> Tokens.RefreshToken then
-      raise Exception.Create('Gespeicherter Refresh Token stimmt nicht mit dem Original überein.');
-
-    GraphAccounts := TGraphAccounts.Create(FHttpServer.Database);
-    try
-      GraphAccounts.MarkAvailable(
-        MailboxAddress,
-        TGraphAuth.ConfiguredTenantID,
-        UserInfo.ID
-      );
-    finally
-      GraphAccounts.Free;
-    end;
-
-    // Jetzt den gespeicherten Token wirklich benutzen: kein Browser, kein PKCE.
-    if not TGraphAuth.RefreshAccessToken(
-      StoredRefreshToken, RefreshTokens, ErrorText) then
-      raise Exception.Create('Token-Refresh fehlgeschlagen: ' + ErrorText);
-
-    if RefreshTokens.RefreshToken <> '' then
-      TGraphTokenStore.SaveRefreshToken(MailboxAddress, RefreshTokens.RefreshToken);
-
-    if not TGraphAuth.GetMe(
-      RefreshTokens.AccessToken, RefreshUserInfo, ErrorText) then
-      raise Exception.Create('Graph /me nach Token-Refresh fehlgeschlagen: ' + ErrorText);
-
-    if not SameText(RefreshUserInfo.ID, UserInfo.ID) then
-      raise Exception.Create('Token-Refresh lieferte einen anderen Graph-Benutzer.');
-
-    GraphAccounts := TGraphAccounts.Create(FHttpServer.Database);
-    try
-      GraphAccounts.MarkAvailable(
-        MailboxAddress,
-        TGraphAuth.ConfiguredTenantID,
-        RefreshUserInfo.ID
-      );
-    finally
-      GraphAccounts.Free;
-    end;
-
-    Details :=
-      'Microsoft Graph erfolgreich erreicht.' + sLineBreak + sLineBreak +
-      'Name: ' + UserInfo.DisplayName + sLineBreak +
-      'Konto: ' + MailboxAddress + sLineBreak +
-      'User-ID: ' + UserInfo.ID + sLineBreak +
-      'Access Token: erhalten' + sLineBreak +
-      'Refresh Token: erhalten' + sLineBreak +
-      'Refresh Token sicher gespeichert: ja' + sLineBreak +
-      'Refresh ohne Browser: erfolgreich' + sLineBreak +
-      'GraphAccount: Available' + sLineBreak +
-      'Gültigkeit: ' + IntToStr(Tokens.ExpiresIn) + ' Sekunden';
-
-    MessageBox(FWindowHandle, PChar(Details), 'MailNotes Graph-Test',
-      MB_OK or MB_ICONINFORMATION);
-  except
-    on E: Exception do
-      MessageBox(FWindowHandle, PChar('Graph-Test fehlgeschlagen:' + sLineBreak + E.Message),
-        'MailNotes Graph-Test', MB_OK or MB_ICONERROR);
-  end;
-end;
-
-
-procedure TTrayIcon.TestGraphRefresh;
-var
-  GraphAccounts: TGraphAccounts;
-  Account: TGraphAccount;
-  StoredRefreshToken: string;
-  Tokens: TGraphTokenResult;
-  UserInfo: TGraphUserInfo;
-  ErrorText: string;
-  MailboxAddress: string;
-  Details: string;
-begin
-  try
-    GraphAccounts := TGraphAccounts.Create(FHttpServer.Database);
-    try
-      if not GraphAccounts.TryGet('gerhard@waldhelm.name', Account) then
-        raise Exception.Create('Kein GraphAccount fuer gerhard@waldhelm.name gefunden.');
-    finally
-      GraphAccounts.Free;
-    end;
-
-    MailboxAddress := Account.MailboxAddress;
-    if not TGraphTokenStore.LoadRefreshToken(MailboxAddress, StoredRefreshToken) then
-      raise Exception.Create('Kein gespeicherter Refresh Token fuer ' + MailboxAddress + ' gefunden.');
-
-    if not TGraphAuth.RefreshAccessToken(StoredRefreshToken, Tokens, ErrorText) then
-      raise Exception.Create('Token-Refresh fehlgeschlagen: ' + ErrorText);
-
-    if Tokens.RefreshToken <> '' then
-      TGraphTokenStore.SaveRefreshToken(MailboxAddress, Tokens.RefreshToken);
-
-    if not TGraphAuth.GetMe(Tokens.AccessToken, UserInfo, ErrorText) then
-      raise Exception.Create('Graph /me nach Token-Refresh fehlgeschlagen: ' + ErrorText);
-
-    if (Account.UserID <> '') and (not SameText(Account.UserID, UserInfo.ID)) then
-      raise Exception.Create('Gespeicherter GraphAccount und Refresh Token gehoeren nicht zum selben Benutzer.');
-
-    GraphAccounts := TGraphAccounts.Create(FHttpServer.Database);
-    try
-      GraphAccounts.MarkAvailable(MailboxAddress, TGraphAuth.ConfiguredTenantID, UserInfo.ID);
-    finally
-      GraphAccounts.Free;
-    end;
-
-    Details :=
-      'Persistente Graph-Anmeldung erfolgreich.' + sLineBreak + sLineBreak +
-      'Konto: ' + MailboxAddress + sLineBreak +
-      'Name: ' + UserInfo.DisplayName + sLineBreak +
-      'User-ID: ' + UserInfo.ID + sLineBreak +
-      'Refresh Token aus DPAPI-Speicher: ja' + sLineBreak +
-      'Browser/PKCE: nicht verwendet' + sLineBreak +
-      'Graph /me: erfolgreich' + sLineBreak +
-      'GraphAccount: Available' + sLineBreak +
-      'Gueltigkeit: ' + IntToStr(Tokens.ExpiresIn) + ' Sekunden';
-
-    MessageBox(FWindowHandle, PChar(Details), 'MailNotes Graph-Refresh-Test',
-      MB_OK or MB_ICONINFORMATION);
-  except
-    on E: Exception do
-      MessageBox(FWindowHandle,
-        PChar('Graph-Refresh-Test fehlgeschlagen:' + sLineBreak + E.Message),
-        'MailNotes Graph-Refresh-Test', MB_OK or MB_ICONERROR);
   end;
 end;
 
@@ -1493,18 +1288,6 @@ begin
   end;
 end;
 
-procedure TMacMenuHandler.testGraphAuthorization;
-begin
-  if FOwner <> nil then
-    FOwner.TestGraphAuthorization;
-end;
-
-procedure TMacMenuHandler.testGraphRefresh;
-begin
-  if FOwner <> nil then
-    FOwner.TestGraphRefresh;
-end;
-
 
 constructor TTrayIcon.Create(AHttpServer: THttpServer);
 begin
@@ -1646,27 +1429,6 @@ begin
   FPopupMenu.addItem(MenuItem);
   MenuItem.release;
 
-  MenuItem := TNSMenuItem.Wrap(
-    TNSMenuItem.Alloc.initWithTitle(
-      StrToNSStr('Graph-Anmeldung testen ...'),
-      sel_getUid('testGraphAuthorization'),
-      StrToNSStr('')
-    )
-  );
-  MenuItem.setTarget(FMenuHandler.GetObjectID);
-  FPopupMenu.addItem(MenuItem);
-  MenuItem.release;
-
-  MenuItem := TNSMenuItem.Wrap(
-    TNSMenuItem.Alloc.initWithTitle(
-      StrToNSStr('Graph-Refresh testen ...'),
-      sel_getUid('testGraphRefresh'),
-      StrToNSStr('')
-    )
-  );
-  MenuItem.setTarget(FMenuHandler.GetObjectID);
-  FPopupMenu.addItem(MenuItem);
-  MenuItem.release;
 
   FPopupMenu.addItem(TNSMenuItem.Wrap(TNSMenuItem.OCClass.separatorItem));
 
@@ -1780,183 +1542,6 @@ begin
 end;
 
 
-procedure TTrayIcon.TestGraphAuthorization;
-var
-  Verifier: string;
-  AuthResult: TGraphAuthorizationResult;
-  Tokens: TGraphTokenResult;
-  UserInfo: TGraphUserInfo;
-  ErrorText: string;
-  MailboxAddress: string;
-  Details: string;
-  StoredRefreshToken: string;
-  RefreshTokens: TGraphTokenResult;
-  RefreshUserInfo: TGraphUserInfo;
-  GraphAccounts: TGraphAccounts;
-begin
-  try
-    if not TGraphAuth.Authorize(Verifier, AuthResult) then
-    begin
-      Details := 'Graph-Anmeldung fehlgeschlagen.';
-      if AuthResult.Error <> '' then
-        Details := Details + sLineBreak + sLineBreak + 'Fehler: ' + AuthResult.Error;
-      if AuthResult.ErrorDescription <> '' then
-        Details := Details + sLineBreak + AuthResult.ErrorDescription;
-      ShowMacMessage('MailNotes Graph-Test', Details);
-      Exit;
-    end;
-
-    if not TGraphAuth.ExchangeAuthorizationCode(
-      AuthResult.AuthorizationCode, Verifier, Tokens, ErrorText) then
-    begin
-      ShowMacMessage(
-        'MailNotes Graph-Test',
-        'Token-Austausch fehlgeschlagen:' + sLineBreak + sLineBreak + ErrorText
-      );
-      Exit;
-    end;
-
-    if not TGraphAuth.GetMe(Tokens.AccessToken, UserInfo, ErrorText) then
-    begin
-      ShowMacMessage(
-        'MailNotes Graph-Test',
-        'Graph /me fehlgeschlagen:' + sLineBreak + sLineBreak + ErrorText
-      );
-      Exit;
-    end;
-
-    MailboxAddress := UserInfo.Mail;
-    if MailboxAddress = '' then
-      MailboxAddress := UserInfo.UserPrincipalName;
-
-    if Tokens.RefreshToken = '' then
-      raise Exception.Create('Microsoft hat keinen Refresh Token geliefert.');
-
-    TGraphTokenStore.SaveRefreshToken(MailboxAddress, Tokens.RefreshToken);
-    if not TGraphTokenStore.LoadRefreshToken(MailboxAddress, StoredRefreshToken) then
-      raise Exception.Create('Gespeicherter Refresh Token konnte nicht gelesen werden.');
-    if StoredRefreshToken <> Tokens.RefreshToken then
-      raise Exception.Create('Gespeicherter Refresh Token stimmt nicht mit dem Original ueberein.');
-
-    GraphAccounts := TGraphAccounts.Create(FHttpServer.Database);
-    try
-      GraphAccounts.MarkAvailable(
-        MailboxAddress,
-        TGraphAuth.ConfiguredTenantID,
-        UserInfo.ID
-      );
-    finally
-      GraphAccounts.Free;
-    end;
-
-    if not TGraphAuth.RefreshAccessToken(
-      StoredRefreshToken, RefreshTokens, ErrorText) then
-      raise Exception.Create('Token-Refresh fehlgeschlagen: ' + ErrorText);
-
-    if RefreshTokens.RefreshToken <> '' then
-      TGraphTokenStore.SaveRefreshToken(MailboxAddress, RefreshTokens.RefreshToken);
-
-    if not TGraphAuth.GetMe(
-      RefreshTokens.AccessToken, RefreshUserInfo, ErrorText) then
-      raise Exception.Create('Graph /me nach Token-Refresh fehlgeschlagen: ' + ErrorText);
-
-    if not SameText(RefreshUserInfo.ID, UserInfo.ID) then
-      raise Exception.Create('Token-Refresh lieferte einen anderen Graph-Benutzer.');
-
-    GraphAccounts := TGraphAccounts.Create(FHttpServer.Database);
-    try
-      GraphAccounts.MarkAvailable(
-        MailboxAddress,
-        TGraphAuth.ConfiguredTenantID,
-        RefreshUserInfo.ID
-      );
-    finally
-      GraphAccounts.Free;
-    end;
-
-    Details :=
-      'Microsoft Graph erfolgreich erreicht.' + sLineBreak + sLineBreak +
-      'Name: ' + UserInfo.DisplayName + sLineBreak +
-      'Konto: ' + MailboxAddress + sLineBreak +
-      'User-ID: ' + UserInfo.ID + sLineBreak +
-      'Access Token: erhalten' + sLineBreak +
-      'Refresh Token: erhalten' + sLineBreak +
-      'Refresh Token im macOS-Schluesselbund gespeichert: ja' + sLineBreak +
-      'Refresh ohne Browser: erfolgreich' + sLineBreak +
-      'GraphAccount: Available' + sLineBreak +
-      'Gueltigkeit: ' + IntToStr(Tokens.ExpiresIn) + ' Sekunden';
-
-    ShowMacMessage('MailNotes Graph-Test', Details);
-  except
-    on E: Exception do
-      ShowMacMessage('MailNotes Graph-Test', 'Graph-Test fehlgeschlagen:' + sLineBreak + E.Message);
-  end;
-end;
-
-
-procedure TTrayIcon.TestGraphRefresh;
-var
-  GraphAccounts: TGraphAccounts;
-  Account: TGraphAccount;
-  StoredRefreshToken: string;
-  Tokens: TGraphTokenResult;
-  UserInfo: TGraphUserInfo;
-  ErrorText: string;
-  MailboxAddress: string;
-  Details: string;
-begin
-  try
-    GraphAccounts := TGraphAccounts.Create(FHttpServer.Database);
-    try
-      if not GraphAccounts.TryGet('gerhard@waldhelm.name', Account) then
-        raise Exception.Create('Kein GraphAccount fuer gerhard@waldhelm.name gefunden.');
-    finally
-      GraphAccounts.Free;
-    end;
-
-    MailboxAddress := Account.MailboxAddress;
-    if not TGraphTokenStore.LoadRefreshToken(MailboxAddress, StoredRefreshToken) then
-      raise Exception.Create('Kein gespeicherter Refresh Token fuer ' + MailboxAddress + ' gefunden.');
-
-    if not TGraphAuth.RefreshAccessToken(StoredRefreshToken, Tokens, ErrorText) then
-      raise Exception.Create('Token-Refresh fehlgeschlagen: ' + ErrorText);
-
-    if Tokens.RefreshToken <> '' then
-      TGraphTokenStore.SaveRefreshToken(MailboxAddress, Tokens.RefreshToken);
-
-    if not TGraphAuth.GetMe(Tokens.AccessToken, UserInfo, ErrorText) then
-      raise Exception.Create('Graph /me nach Token-Refresh fehlgeschlagen: ' + ErrorText);
-
-    if (Account.UserID <> '') and (not SameText(Account.UserID, UserInfo.ID)) then
-      raise Exception.Create('Gespeicherter GraphAccount und Refresh Token gehoeren nicht zum selben Benutzer.');
-
-    GraphAccounts := TGraphAccounts.Create(FHttpServer.Database);
-    try
-      GraphAccounts.MarkAvailable(MailboxAddress, TGraphAuth.ConfiguredTenantID, UserInfo.ID);
-    finally
-      GraphAccounts.Free;
-    end;
-
-    Details :=
-      'Persistente Graph-Anmeldung erfolgreich.' + sLineBreak + sLineBreak +
-      'Konto: ' + MailboxAddress + sLineBreak +
-      'Name: ' + UserInfo.DisplayName + sLineBreak +
-      'User-ID: ' + UserInfo.ID + sLineBreak +
-      'Refresh Token aus macOS-Schluesselbund: ja' + sLineBreak +
-      'Browser/PKCE: nicht verwendet' + sLineBreak +
-      'Graph /me: erfolgreich' + sLineBreak +
-      'GraphAccount: Available' + sLineBreak +
-      'Gueltigkeit: ' + IntToStr(Tokens.ExpiresIn) + ' Sekunden';
-
-    ShowMacMessage('MailNotes Graph-Refresh-Test', Details);
-  except
-    on E: Exception do
-      ShowMacMessage(
-        'MailNotes Graph-Refresh-Test',
-        'Graph-Refresh-Test fehlgeschlagen:' + sLineBreak + E.Message
-      );
-  end;
-end;
 
 
 function LastBackupDisplayText(const AFileName: string): string;
