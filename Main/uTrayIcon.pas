@@ -1941,7 +1941,10 @@ begin
   UpdateTrayIcon;
   if FBackupDirectoryLink <> nil then
     FBackupDirectoryLink.setTitle(StrToNSStr(DirectoryName));
-  ShowMacMessage('Backup-Ziel gespeichert', DirectoryName);
+  // Kein modaler NSAlert nach dem nativen Ordnerdialog: Unter macOS 27 kann
+  // die Kombination aus Panel/Info-Fenster und direkt folgendem runModal
+  // beim AppKit-Layout mit einer Objective-C-Exception abbrechen.
+  // Der neue Pfad ist im Info-Fenster unmittelbar sichtbar.
 end;
 
 procedure TTrayIcon.CreateDatabaseBackup;
@@ -1971,10 +1974,25 @@ begin
     if FLastBackupLabel <> nil then
       FLastBackupLabel.setStringValue(StrToNSStr(
         LastBackupDisplayText(BackupFile)));
-    ShowMacMessage('Backup erfolgreich', BackupFile);
+    // Erfolg nicht mit einem direkt folgenden modalen NSAlert quittieren.
+    // Das vermeidet den unter macOS 27 reproduzierbaren AppKit-Crash;
+    // der erfolgreiche Snapshot ist ueber 'Letztes Backup' sichtbar.
   except
     on E: Exception do
-      ShowMacMessage('Backup fehlgeschlagen', E.Message);
+    begin
+      // Diagnose vor jeder UI-Reaktion: Ein NSAlert kann unter macOS 27
+      // selbst beim Layout abstuerzen und dadurch die eigentliche
+      // Backup-Exception verdecken. Deshalb Fehler direkt protokollieren.
+      try
+        TFile.AppendAllText(TAppPaths.LogFile,
+          FormatDateTime('yyyy-mm-dd hh:nn:ss.zzz', Now) +
+          ' [Backup] Manuelles Backup fehlgeschlagen: ' + E.ClassName +
+          ': ' + E.Message + sLineBreak, TEncoding.UTF8);
+      except
+        // Logging darf den urspruenglichen Fehlerpfad niemals ueberdecken.
+      end;
+      // Bewusst kein ShowMacMessage/NSAlert in diesem Fehlerpfad.
+    end;
   end;
 end;
 
