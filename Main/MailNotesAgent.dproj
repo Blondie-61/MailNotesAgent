@@ -214,11 +214,12 @@
         <UWP_DelphiLogo150>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_150.png</UWP_DelphiLogo150>
         <DCC_Namespace>Winapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;$(DCC_Namespace)</DCC_Namespace>
         <BT_BuildType>Debug</BT_BuildType>
-        <VerInfo_Keys>CompanyName=;FileDescription=MailNotes Agent;FileVersion=1.0.0.6;InternalName=MailNotesAgent;LegalCopyright=Copyright © 2026;LegalTrademarks=;OriginalFilename=MailNotesAgent.exe;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=MailNotes Agent;ProductVersion=1.0.0.6;Comments=Lokaler Agent für MailNotes</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=;FileDescription=MailNotes Agent;FileVersion=1.1.2.0;InternalName=MailNotesAgent;LegalCopyright=Copyright © 2026;LegalTrademarks=;OriginalFilename=MailNotesAgent.exe;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=MailNotes Agent;ProductVersion=1.1.2.0;Comments=Lokaler Agent für MailNotes</VerInfo_Keys>
         <VerInfo_Locale>1031</VerInfo_Locale>
-        <VerInfo_Build>6</VerInfo_Build>
         <Manifest_File>(Ohne)</Manifest_File>
         <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
+        <VerInfo_MinorVer>1</VerInfo_MinorVer>
+        <VerInfo_Release>2</VerInfo_Release>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_WinARM64EC)'!=''">
         <DCC_UsePackage>vclwinx;fmx;vclie;DbxCommonDriver;bindengine;IndyIPCommon;VCLRESTComponents;FireDACCommonODBC;FireDACCommonDriver;IndyProtocols;vclx;IndyIPClient;dbxcds;vcledge;bindcompvclwinx;FmxTeeUI;bindcompfmx;inetdb;FireDACSqliteDriver;DbxClientDriver;Tee;soapmidas;vclactnband;TeeUI;fmxFireDAC;dbexpress;DBXMySQLDriver;VclSmp;inet;fmxase;vcltouch;dbrtl;fmxdae;TeeDB;FireDACMSAccDriver;CustomIPTransport;vcldsnap;DBXInterBaseDriver;IndySystem;Skia.Package.VCL;vcldb;vclFireDAC;bindcomp;FireDACCommon;inetstn;IndyCore;RESTBackendComponents;bindcompdbx;rtl;FireDACMySQLDriver;FireDACADSDriver;RESTComponents;DBXSqliteDriver;vcl;IndyIPServer;dsnapxml;dsnapcon;adortl;vclimg;FireDACPgDriver;FireDAC;inetdbxpress;xmlrtl;tethering;bindcompvcl;dsnap;CloudService;fmxobj;bindcompvclsmp;FMXTee;soaprtl;soapserver;FireDACIBDriver;$(DCC_UsePackage)</DCC_UsePackage>
@@ -257,18 +258,18 @@
     <PropertyGroup Condition="'$(Cfg_2_OSXARM64)'!=''">
         <DCC_UnitSearchPath>C:\Delphi-Projekte\Komponenten\IndySecOpenSSL\src;C:\Delphi-Projekte\Komponenten\IndySecOpenSSL\src\opensslHdrs;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <Debugger_Launcher>/usr/X11/bin/xterm -e &quot;%debuggee%&quot;</Debugger_Launcher>
-        <VerInfo_Keys>CFBundleName=$(MSBuildProjectName);CFBundleDisplayName=$(MSBuildProjectName);CFBundleIdentifier=$(MSBuildProjectName);CFBundleVersion=1.1.0;CFBundleShortVersionString=1.1.0.1;CFBundlePackageType=APPL;CFBundleSignature=????;CFBundleAllowMixedLocalizations=YES;CFBundleExecutable=$(MSBuildProjectName);NSHighResolutionCapable=true;LSApplicationCategoryType=public.app-category.utilities;LSUIElement=true;NSLocationUsageDescription=The reason for accessing the location information of the user;NSContactsUsageDescription=The reason for accessing the contacts;NSCalendarsUsageDescription=The reason for accessing the calendar data;NSRemindersUsageDescription=The reason for accessing the reminders;NSCameraUsageDescription=The reason for accessing the camera;NSMicrophoneUsageDescription=The reason for accessing the microphone;NSMotionUsageDescription=The reason for accessing the accelerometer;NSDesktopFolderUsageDescription=The reason for accessing the Desktop folder;NSDocumentsFolderUsageDescription=The reason for accessing the Documents folder;NSDownloadsFolderUsageDescription=The reason for accessing the Downloads folder;NSNetworkVolumesUsageDescription=The reason for accessing files on a network volume;NSRemovableVolumesUsageDescription=The reason for accessing files on a removable volume;NSSpeechRecognitionUsageDescription=The reason for requesting to send user data to Apple&apos;s speech recognition servers;ITSAppUsesNonExemptEncryption=false;NSBluetoothAlwaysUsageDescription=The reason for accessing the Bluetooth interface</VerInfo_Keys>
+        <VerInfo_Keys>CFBundleName=$(MSBuildProjectName);CFBundleDisplayName=$(MSBuildProjectName);CFBundleIdentifier=$(MSBuildProjectName);CFBundleVersion=1.1.2;CFBundleShortVersionString=1.1.2.0;CFBundlePackageType=APPL;CFBundleSignature=????;CFBundleAllowMixedLocalizations=YES;CFBundleExecutable=$(MSBuildProjectName);NSHighResolutionCapable=true;LSApplicationCategoryType=public.app-category.utilities;LSUIElement=true;NSLocationUsageDescription=The reason for accessing the location information of the user;NSContactsUsageDescription=The reason for accessing the contacts;NSCalendarsUsageDescription=The reason for accessing the calendar data;NSRemindersUsageDescription=The reason for accessing the reminders;NSCameraUsageDescription=The reason for accessing the camera;NSMicrophoneUsageDescription=The reason for accessing the microphone;NSMotionUsageDescription=The reason for accessing the accelerometer;NSDesktopFolderUsageDescription=The reason for accessing the Desktop folder;NSDocumentsFolderUsageDescription=The reason for accessing the Documents folder;NSDownloadsFolderUsageDescription=The reason for accessing the Downloads folder;NSNetworkVolumesUsageDescription=The reason for accessing files on a network volume;NSRemovableVolumesUsageDescription=The reason for accessing files on a removable volume;NSSpeechRecognitionUsageDescription=The reason for requesting to send user data to Apple&apos;s speech recognition servers;ITSAppUsesNonExemptEncryption=false;NSBluetoothAlwaysUsageDescription=The reason for accessing the Bluetooth interface</VerInfo_Keys>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <PF_MacDevelopmentCert>Apple Development: Gerhard Waldhelm (VTRPUFAMFL)</PF_MacDevelopmentCert>
         <VerInfo_MinorVer>1</VerInfo_MinorVer>
+        <VerInfo_Build>2</VerInfo_Build>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2_Win64)'!=''">
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Locale>1031</VerInfo_Locale>
-        <VerInfo_Build>1</VerInfo_Build>
         <Icon_MainIcon>..\Resources\Windows\MN-OK-ALL.ico</Icon_MainIcon>
-        <VerInfo_Keys>CompanyName=;FileDescription=MailNotes Agent;FileVersion=1.1.0.1;InternalName=MailNotesAgent;LegalCopyright=Copyright © 2026;LegalTrademarks=;OriginalFilename=MailNotesAgent.exe;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=MailNotes Agent;ProductVersion=1.1.0.1;Comments=Lokaler Agent für MailNotes</VerInfo_Keys>
         <VerInfo_MinorVer>1</VerInfo_MinorVer>
+        <VerInfo_Release>2</VerInfo_Release>
     </PropertyGroup>
     <ItemGroup>
         <DelphiCompile Include="$(MainSource)">
