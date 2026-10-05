@@ -44,6 +44,14 @@ type
     FDatabaseLock: TObject;
     FLogLock: TObject;
 
+    // Kurzlebiger, einmaliger Navigationsauftrag fuer einen bewussten
+    // Postfachwechsel im Outlook-Add-in. Nur im Speicher; niemals Teil
+    // des persistenten LinkBuffers.
+    FPendingOpenMailNotesID: string;
+    FPendingOpenMailboxAddress: string;
+    FPendingOpenSubject: string;
+    FPendingOpenExpiresAt: TDateTime;
+
     procedure HandleCommandGet(AContext: TIdContext; ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 {$IF Defined(MSWINDOWS) or Defined(MACOS)}
     procedure HandleQuerySSLPort(APort: Word; var VUseSSL: Boolean);
@@ -77,6 +85,9 @@ type
     procedure HandleLinkBufferSet(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleLinkBufferGet(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleLinkBufferClear(AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandlePendingOpenSet(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandlePendingOpenGet(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandlePendingOpenClear(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleRepairQueueAdd(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleRepairQueueCount(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleRepairQueueList(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
@@ -272,6 +283,8 @@ begin
         HandleFavoriteSet(ARequestInfo, AResponseInfo)
       else if SameText(ARequestInfo.Document, '/linkbuffer') then
         HandleLinkBufferSet(ARequestInfo, AResponseInfo)
+      else if SameText(ARequestInfo.Document, '/pendingopen') then
+        HandlePendingOpenSet(ARequestInfo, AResponseInfo)
       else if SameText(ARequestInfo.Document, '/repairqueue') then
         HandleRepairQueueAdd(ARequestInfo, AResponseInfo)
       else if SameText(ARequestInfo.Document, '/repairqueue/status') then
@@ -291,6 +304,8 @@ begin
         HandleNoteDelete(ARequestInfo, AResponseInfo)
       else if SameText(ARequestInfo.Document, '/linkbuffer') then
         HandleLinkBufferClear(AResponseInfo)
+      else if SameText(ARequestInfo.Document, '/pendingopen') then
+        HandlePendingOpenClear(AResponseInfo)
       else if SameText(ARequestInfo.Document, '/backlinks') then
         HandleBacklinkDelete(ARequestInfo, AResponseInfo)
       else
@@ -414,6 +429,8 @@ begin
     HandleNotePersons(ARequestInfo, AResponseInfo)
   else if SameText(ARequestInfo.Document, '/linkbuffer') then
     HandleLinkBufferGet(AResponseInfo)
+  else if SameText(ARequestInfo.Document, '/pendingopen') then
+    HandlePendingOpenGet(ARequestInfo, AResponseInfo)
   else if SameText(ARequestInfo.Document, '/repairqueue/count') then
     HandleRepairQueueCount(ARequestInfo, AResponseInfo)
   else if SameText(ARequestInfo.Document, '/repairqueue') then
@@ -876,6 +893,7 @@ var
   Note: TNote;
   OldItemID: string;
   GMLError: string;
+  GraphWebLink: string;
 begin
   Link := ARequestInfo.Params.Values['link'];
   if Link = '' then
@@ -903,6 +921,16 @@ begin
     begin
       SendJson(AResponseInfo, '{"found":false,"type":"mail"}');
       Exit;
+    end;
+
+    // Fehlt fuer eine vorhandene SRL noch die zusaetzliche GML-Identitaet,
+    // versuchen wir sie beim Aufloesen nachzuladen. SRL und GML bleiben dabei
+    // parallel erhalten; die vorhandene ItemID wird nicht ersetzt.
+    if (Note.ImmutableID = '') and (Note.ItemID <> '') and
+       (Note.MailboxAddress <> '') then
+    begin
+      if TGML.TryEnrichMailIdentity(FDatabase, Note, GMLError) then
+        FDatabase.RefreshMailIdentity(Note);
     end;
 
     // Wenn eine GML vorhanden ist, wird daraus vor dem Oeffnen die aktuelle
@@ -935,6 +963,19 @@ begin
         );
     end;
 
+    GraphWebLink := '';
+    if (Note.ImmutableID <> '') and (Note.MailboxAddress <> '') then
+    begin
+      if not TGML.TryGetWebLink(FDatabase, Note, GraphWebLink, GMLError) then
+        LogToFile(
+          'Agent',
+          'GML WebLink unavailable',
+          'mailNotesId=' + Note.MailNotesID +
+          ' mailbox=' + Note.MailboxAddress +
+          ' reason=' + GMLError
+        );
+    end;
+
     SendJson(
       AResponseInfo,
       '{' +
@@ -944,6 +985,8 @@ begin
       '"title":"' + JsonEscape(Note.Subject) + '",' +
       '"subtitle":"' + JsonEscape(Note.SenderName) + ' · ' + JsonEscape(Note.MailDate) + '",' +
       '"messageId":"' + JsonEscape(Note.MessageID) + '",' +
+      '"mailboxAddress":"' + JsonEscape(Note.MailboxAddress) + '",' +
+      '"graphWebLink":"' + JsonEscape(GraphWebLink) + '",' +
       '"itemId":"' + JsonEscape(Note.ItemID) + '"' +
       '}'
     );
@@ -1348,6 +1391,86 @@ begin
     '{"saved":true,"isFavorite":' +
     LowerCase(BoolToStr(IsFavorite, True)) + '}'
   );
+end;
+
+procedure THttpServer.HandlePendingOpenSet(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+begin
+  FPendingOpenMailNotesID := Trim(ARequestInfo.Params.Values['mailNotesId']);
+  FPendingOpenMailboxAddress := Trim(ARequestInfo.Params.Values['mailboxAddress']);
+  FPendingOpenSubject := ARequestInfo.Params.Values['subject'];
+
+  if (FPendingOpenMailNotesID = '') or (FPendingOpenMailboxAddress = '') then
+  begin
+    FPendingOpenMailNotesID := '';
+    FPendingOpenMailboxAddress := '';
+    FPendingOpenSubject := '';
+    FPendingOpenExpiresAt := 0;
+    SendJson(AResponseInfo, '{"error":"mailNotesId and mailboxAddress are required"}', 400);
+    Exit;
+  end;
+
+  // Der Auftrag soll nur den unmittelbar folgenden Postfachwechsel ueberleben.
+  FPendingOpenExpiresAt := Now + (60 / 86400);
+
+  SendJson(
+    AResponseInfo,
+    '{' +
+    '"ok":true,' +
+    '"mailNotesId":"' + JsonEscape(FPendingOpenMailNotesID) + '",' +
+    '"mailboxAddress":"' + JsonEscape(FPendingOpenMailboxAddress) + '"' +
+    '}'
+  );
+end;
+
+procedure THttpServer.HandlePendingOpenGet(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+var
+  CurrentMailboxAddress: string;
+begin
+  if (FPendingOpenMailNotesID = '') or
+     (FPendingOpenExpiresAt = 0) or
+     (Now > FPendingOpenExpiresAt) then
+  begin
+    FPendingOpenMailNotesID := '';
+    FPendingOpenMailboxAddress := '';
+    FPendingOpenSubject := '';
+    FPendingOpenExpiresAt := 0;
+    SendJson(AResponseInfo, '{"found":false}');
+    Exit;
+  end;
+
+  CurrentMailboxAddress := Trim(ARequestInfo.Params.Values['mailboxAddress']);
+
+  // Wird MailNotes als naechste Aktion in einem anderen als dem erwarteten
+  // Postfach geoeffnet, gilt der Navigationsauftrag als verworfen.
+  if (CurrentMailboxAddress <> '') and
+     not SameText(CurrentMailboxAddress, FPendingOpenMailboxAddress) then
+  begin
+    FPendingOpenMailNotesID := '';
+    FPendingOpenMailboxAddress := '';
+    FPendingOpenSubject := '';
+    FPendingOpenExpiresAt := 0;
+    SendJson(AResponseInfo, '{"found":false,"discarded":"mailbox_mismatch"}');
+    Exit;
+  end;
+
+  SendJson(
+    AResponseInfo,
+    '{' +
+    '"found":true,' +
+    '"mailNotesId":"' + JsonEscape(FPendingOpenMailNotesID) + '",' +
+    '"mailboxAddress":"' + JsonEscape(FPendingOpenMailboxAddress) + '",' +
+    '"subject":"' + JsonEscape(FPendingOpenSubject) + '"' +
+    '}'
+  );
+end;
+
+procedure THttpServer.HandlePendingOpenClear(AResponseInfo: TIdHTTPResponseInfo);
+begin
+  FPendingOpenMailNotesID := '';
+  FPendingOpenMailboxAddress := '';
+  FPendingOpenSubject := '';
+  FPendingOpenExpiresAt := 0;
+  SendJson(AResponseInfo, '{"ok":true}');
 end;
 
 procedure THttpServer.HandleLinkBufferSet(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);

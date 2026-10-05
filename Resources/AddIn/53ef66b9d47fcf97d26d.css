@@ -212,6 +212,9 @@ h1 {
     padding: 12px;
 
     resize: vertical;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
 
     font-family: inherit;
     font-size: 14px;
@@ -225,6 +228,23 @@ h1 {
     border: 1px solid #c7c7cc;
     border-radius: 10px;
     outline: none;
+}
+
+.note-editor:empty::before {
+    content: attr(data-placeholder);
+    color: #8e8e93;
+    pointer-events: none;
+}
+
+.note-person-token {
+    border-radius: 4px;
+    background: rgba(0, 122, 255, 0.09);
+    cursor: pointer;
+    transition: background-color 100ms ease;
+}
+
+.note-person-token:hover {
+    background: rgba(0, 122, 255, 0.16);
 }
 
 .note-editor:focus,
@@ -610,7 +630,8 @@ button:disabled {
     opacity: 0.55;
 }
 
-.repair-queue-notice {
+.repair-queue-notice,
+.pending-open-notice {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
@@ -624,13 +645,20 @@ button:disabled {
 }
 
 .repair-queue-notice[hidden],
+.pending-open-notice[hidden],
 #repair-queue-card[hidden] {
     display: none;
 }
 
-.repair-queue-notice > div {
+.repair-queue-notice > div,
+.pending-open-notice > div {
     flex: 1;
     min-width: 190px;
+}
+
+.pending-open-notice {
+    border-color: #b8d7ff;
+    background: #eef6ff;
 }
 
 .repair-help {
@@ -1241,4 +1269,15 @@ button:disabled {
 .confirm-button:focus-visible {
     outline: none;
     box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.16);
+}
+
+#cross-mailbox-open-confirm .confirm-button {
+    min-width: 0;
+    padding: 5px 9px;
+    font-size: 13px;
+}
+
+/* Keep pending-open actions together below the message. */
+.pending-open-notice > div {
+    flex: 0 0 100%;
 }

@@ -19,6 +19,12 @@ type
       Note: TNote;
       out ErrorText: string
     ): Boolean; static;
+    class function TryGetWebLink(
+      ADatabase: TDatabase;
+      Note: TNote;
+      out WebLink: string;
+      out ErrorText: string
+    ): Boolean; static;
   end;
 
 implementation
@@ -240,6 +246,110 @@ begin
     // GML repariert nur die SRL. Die ImmutableID bleibt unveraendert erhalten.
     Note.ItemID := CurrentItemID;
     ADatabase.RefreshMailIdentity(Note);
+
+    GraphAccounts.MarkAvailable(
+      MailboxAddress,
+      TGraphAuth.ConfiguredTenantID,
+      UserInfo.ID
+    );
+    Result := True;
+  finally
+    GraphAccounts.Free;
+  end;
+end;
+
+class function TGML.TryGetWebLink(
+  ADatabase: TDatabase;
+  Note: TNote;
+  out WebLink: string;
+  out ErrorText: string
+): Boolean;
+var
+  GraphAccounts: TGraphAccounts;
+  Account: TGraphAccount;
+  StoredRefreshToken: string;
+  Tokens: TGraphTokenResult;
+  UserInfo: TGraphUserInfo;
+  Mail: TGraphMailInfo;
+  MailboxAddress: string;
+begin
+  Result := False;
+  WebLink := '';
+  ErrorText := '';
+
+  if (ADatabase = nil) or (Note = nil) then
+  begin
+    ErrorText := 'Datenbank oder Mail fehlt.';
+    Exit;
+  end;
+
+  MailboxAddress := Trim(LowerCase(Note.MailboxAddress));
+  if (MailboxAddress = '') or (Note.ImmutableID = '') then
+  begin
+    ErrorText := 'MailboxAddress oder ImmutableID fehlt.';
+    Exit;
+  end;
+
+  GraphAccounts := TGraphAccounts.Create(ADatabase);
+  try
+    if not GraphAccounts.TryGet(MailboxAddress, Account) then
+    begin
+      ErrorText := 'Fuer dieses Konto ist Graph noch nicht eingerichtet.';
+      Exit;
+    end;
+
+    if Account.State <> gsAvailable then
+    begin
+      ErrorText := 'Graph ist fuer dieses Konto derzeit nicht verfuegbar.';
+      Exit;
+    end;
+
+    if not TGraphTokenStore.LoadRefreshToken(
+      MailboxAddress, StoredRefreshToken) then
+    begin
+      GraphAccounts.MarkAuthRequired(
+        MailboxAddress, 'Kein gespeicherter Refresh Token.'
+      );
+      ErrorText := 'Kein gespeicherter Refresh Token.';
+      Exit;
+    end;
+
+    if not TGraphAuth.RefreshAccessToken(
+      StoredRefreshToken, Tokens, ErrorText) then
+    begin
+      GraphAccounts.MarkAuthRequired(MailboxAddress, ErrorText);
+      Exit;
+    end;
+
+    if Tokens.RefreshToken <> '' then
+      TGraphTokenStore.SaveRefreshToken(
+        MailboxAddress, Tokens.RefreshToken
+      );
+
+    if not TGraphAuth.GetMe(Tokens.AccessToken, UserInfo, ErrorText) then
+    begin
+      GraphAccounts.MarkUnavailable(MailboxAddress, ErrorText);
+      Exit;
+    end;
+
+    if (Account.UserID <> '') and
+       not SameText(Account.UserID, UserInfo.ID) then
+    begin
+      ErrorText := 'Graph Token gehoert zu einem anderen Benutzer.';
+      GraphAccounts.MarkDenied(MailboxAddress, ErrorText);
+      Exit;
+    end;
+
+    if not TGraphClient.GetMailByImmutableID(
+      Tokens.AccessToken, Note.ImmutableID, Mail, ErrorText) then
+      Exit;
+
+    WebLink := Mail.WebLink;
+    if WebLink = '' then
+    begin
+      ErrorText := 'Graph hat keinen WebLink geliefert.';
+      Exit;
+    end;
 
     GraphAccounts.MarkAvailable(
       MailboxAddress,

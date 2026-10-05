@@ -1,4 +1,4 @@
-unit uAppInfo;
+﻿unit uAppInfo;
 
 interface
 
@@ -91,7 +91,7 @@ begin
     ]
   );
 {$ELSE}
-  Result := '1.1.2.0';
+  Result := '1.2.0.0';
 {$ENDIF}
 end;
 

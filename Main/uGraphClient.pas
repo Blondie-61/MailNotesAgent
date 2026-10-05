@@ -9,6 +9,7 @@ type
     Subject: string;
     ParentFolderID: string;
     ReceivedDateTime: string;
+    WebLink: string;
   end;
 
   TGraphClient = class sealed
@@ -84,6 +85,7 @@ begin
   Mail.Subject := JsonString(Obj, 'subject');
   Mail.ParentFolderID := JsonString(Obj, 'parentFolderId');
   Mail.ReceivedDateTime := JsonString(Obj, 'receivedDateTime');
+  Mail.WebLink := JsonString(Obj, 'webLink');
 end;
 
 class function TGraphClient.ODataStringLiteral(const Value: string): string;
@@ -378,7 +380,7 @@ begin
 
   URL := 'https://graph.microsoft.com/v1.0/me/messages/' +
     TURI.URLEncode(ImmutableID) +
-    '?$select=id,internetMessageId,subject,parentFolderId,receivedDateTime';
+    '?$select=id,internetMessageId,subject,parentFolderId,receivedDateTime,webLink';
 
   SetLength(Headers, 3);
   Headers[0] := TNameValuePair.Create('Authorization', 'Bearer ' + AccessToken);
