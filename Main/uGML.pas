@@ -75,6 +75,8 @@ begin
   try
     if not GraphAccounts.TryGet(MailboxAddress, Account) then
     begin
+      // Kein interaktiver Dialog aus einem HTTP-Workerthread heraus.
+      // Ohne eingerichtetes Graph-Konto bleibt der SRL-Fallback aktiv.
       ErrorText := 'Fuer dieses Konto ist Graph noch nicht eingerichtet.';
       Exit;
     end;
@@ -181,6 +183,8 @@ begin
   try
     if not GraphAccounts.TryGet(MailboxAddress, Account) then
     begin
+      // Kein interaktiver Dialog aus einem HTTP-Workerthread heraus.
+      // Ohne eingerichtetes Graph-Konto bleibt der SRL-Fallback aktiv.
       ErrorText := 'Fuer dieses Konto ist Graph noch nicht eingerichtet.';
       Exit;
     end;
@@ -294,6 +298,8 @@ begin
   try
     if not GraphAccounts.TryGet(MailboxAddress, Account) then
     begin
+      // Kein interaktiver Dialog aus einem HTTP-Workerthread heraus.
+      // Ohne eingerichtetes Graph-Konto bleibt der SRL-Fallback aktiv.
       ErrorText := 'Fuer dieses Konto ist Graph noch nicht eingerichtet.';
       Exit;
     end;

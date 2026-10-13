@@ -42,6 +42,7 @@ type
 {$ENDIF}
     FDatabase: TDatabase;
     FDatabaseLock: TObject;
+    FGraphSignInRequested: TProc;
     FLogLock: TObject;
 
     // Kurzlebiger, einmaliger Navigationsauftrag fuer einen bewussten
@@ -88,6 +89,8 @@ type
     procedure HandlePendingOpenSet(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandlePendingOpenGet(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandlePendingOpenClear(AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleGraphOffer(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleGraphDecision(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleRepairQueueAdd(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleRepairQueueCount(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleRepairQueueList(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
@@ -107,6 +110,7 @@ type
     function ChangeDatabasePath(const APath: string; out AMode: string): string;
     function CreateDatabaseBackup(const ADestinationDirectory: string; const ARetentionCount: Integer = 0): string;
     property Database: TDatabase read FDatabase;
+    property OnGraphSignInRequested: TProc read FGraphSignInRequested write FGraphSignInRequested;
   end;
 
 implementation
@@ -285,6 +289,8 @@ begin
         HandleLinkBufferSet(ARequestInfo, AResponseInfo)
       else if SameText(ARequestInfo.Document, '/pendingopen') then
         HandlePendingOpenSet(ARequestInfo, AResponseInfo)
+      else if SameText(ARequestInfo.Document, '/graph/decision') then
+        HandleGraphDecision(ARequestInfo, AResponseInfo)
       else if SameText(ARequestInfo.Document, '/repairqueue') then
         HandleRepairQueueAdd(ARequestInfo, AResponseInfo)
       else if SameText(ARequestInfo.Document, '/repairqueue/status') then
@@ -431,6 +437,8 @@ begin
     HandleLinkBufferGet(AResponseInfo)
   else if SameText(ARequestInfo.Document, '/pendingopen') then
     HandlePendingOpenGet(ARequestInfo, AResponseInfo)
+  else if SameText(ARequestInfo.Document, '/graph/offer') then
+    HandleGraphOffer(ARequestInfo, AResponseInfo)
   else if SameText(ARequestInfo.Document, '/repairqueue/count') then
     HandleRepairQueueCount(ARequestInfo, AResponseInfo)
   else if SameText(ARequestInfo.Document, '/repairqueue') then
@@ -587,6 +595,7 @@ var
   GraphAccounts: TGraphAccounts;
   GraphAccount: TGraphAccount;
   GMLActive: Boolean;
+  GMLError: string;
 begin
   MailNotesID := ARequestInfo.Params.Values['mailNotesId'];
   MessageID := ARequestInfo.Params.Values['messageId'];
@@ -607,6 +616,24 @@ begin
     begin
       SendJson(AResponseInfo, '{"found":false}');
       Exit;
+    end;
+
+    // Bekannte SRL-Mails koennen nach einer spaeteren Graph-Anmeldung noch
+    // ohne ImmutableID vorliegen. Beim Laden einmalig anreichern und sichern.
+    // Ein Fehlschlag laesst SRL unveraendert nutzbar.
+    if (Note.ImmutableID = '') and (Note.ItemID <> '') and
+       (Note.MailboxAddress <> '') and
+       FDatabase.IsGraphAvailable(Note.MailboxAddress) then
+    begin
+      if TGML.TryEnrichMailIdentity(FDatabase, Note, GMLError) then
+      begin
+        FDatabase.RefreshMailIdentity(Note);
+        LogToFile('Agent', 'GML enriched on note load',
+          'mailNotesId=' + Note.MailNotesID + ' mailbox=' + Note.MailboxAddress);
+      end
+      else
+        LogToFile('Agent', 'GML enrichment on note load skipped',
+          'mailNotesId=' + Note.MailNotesID + ' reason=' + GMLError);
     end;
 
     // GML ist fuer die Anzeige nur dann aktiv, wenn diese konkrete Mail eine
@@ -760,7 +787,9 @@ begin
       '"saved":true,' +
       '"id":' + Note.ID.ToString + ',' +
       '"mailNotesId":"' + JsonEscape(Note.MailNotesID) + '",' +
-      '"gmlActive":' + LowerCase(BoolToStr(Note.ImmutableID <> '', True)) +
+      '"gmlActive":' + LowerCase(BoolToStr(
+        (Note.ImmutableID <> '') and
+        FDatabase.IsGraphAvailable(Note.MailboxAddress), True)) +
       '}'
     );
   finally
@@ -894,6 +923,7 @@ var
   OldItemID: string;
   GMLError: string;
   GraphWebLink: string;
+  ResolvePath: string;
 begin
   Link := ARequestInfo.Params.Values['link'];
   if Link = '' then
@@ -923,6 +953,11 @@ begin
       Exit;
     end;
 
+    ResolvePath := 'SRL';
+    LogToFile('GML', 'RESOLVE_START',
+      'mailNotesId=' + Note.MailNotesID +
+      ' hasImmutableId=' + BoolToStr(Note.ImmutableID <> '', True));
+
     // Fehlt fuer eine vorhandene SRL noch die zusaetzliche GML-Identitaet,
     // versuchen wir sie beim Aufloesen nachzuladen. SRL und GML bleiben dabei
     // parallel erhalten; die vorhandene ItemID wird nicht ersetzt.
@@ -930,7 +965,13 @@ begin
        (Note.MailboxAddress <> '') then
     begin
       if TGML.TryEnrichMailIdentity(FDatabase, Note, GMLError) then
+      begin
         FDatabase.RefreshMailIdentity(Note);
+        LogToFile('GML', 'ENRICH_OK', 'mailNotesId=' + Note.MailNotesID);
+      end
+      else
+        LogToFile('GML', 'ENRICH_FAIL', 'mailNotesId=' + Note.MailNotesID +
+          ' reason=' + GMLError);
     end;
 
     // Wenn eine GML vorhanden ist, wird daraus vor dem Oeffnen die aktuelle
@@ -941,6 +982,9 @@ begin
       OldItemID := Note.ItemID;
       if TGML.TryRefreshSRLFromGML(FDatabase, Note, GMLError) then
       begin
+        ResolvePath := 'GML';
+        LogToFile('GML', 'RESOLVE_OK', 'mailNotesId=' + Note.MailNotesID +
+          ' itemIdChanged=' + BoolToStr(not SameText(OldItemID, Note.ItemID), True));
         // Eine vorhandene GML kann eine veraltete SRL selbst reparieren.
         // Ein alter manueller RepairQueue-Eintrag ist damit erledigt.
         FDatabase.CompleteRepairQueueByIdentity(Note.MailNotesID, Note.MessageID);
@@ -948,7 +992,7 @@ begin
         if not SameText(OldItemID, Note.ItemID) then
           LogToFile(
             'Agent',
-            'GML repaired SRL',
+            'GML_REPAIR_OK',
             'mailNotesId=' + Note.MailNotesID +
             ' mailbox=' + Note.MailboxAddress
           );
@@ -956,7 +1000,7 @@ begin
       else
         LogToFile(
           'Agent',
-          'GML SRL refresh skipped',
+          'RESOLVE_FAIL',
           'mailNotesId=' + Note.MailNotesID +
           ' mailbox=' + Note.MailboxAddress +
           ' reason=' + GMLError
@@ -976,6 +1020,8 @@ begin
         );
     end;
 
+    LogToFile('GML', 'RESOLVE_RESULT', 'mailNotesId=' + Note.MailNotesID +
+      ' path=' + ResolvePath);
     SendJson(
       AResponseInfo,
       '{' +
@@ -987,7 +1033,8 @@ begin
       '"messageId":"' + JsonEscape(Note.MessageID) + '",' +
       '"mailboxAddress":"' + JsonEscape(Note.MailboxAddress) + '",' +
       '"graphWebLink":"' + JsonEscape(GraphWebLink) + '",' +
-      '"itemId":"' + JsonEscape(Note.ItemID) + '"' +
+      '"resolvePath":"' + ResolvePath + '",' +
+      '"itemId":"'  + JsonEscape(Note.ItemID) + '"' +
       '}'
     );
   finally
@@ -1108,8 +1155,13 @@ var
   PersonParam: string;
   Items: TObjectList<TNote>;
   Note: TNote;
+  Tags: TObjectList<TTagInfo>;
+  Tag: TTagInfo;
+  Persons: TObjectList<TPersonInfo>;
+  Person: TPersonInfo;
   Json: TStringBuilder;
   IsFirst: Boolean;
+  IsFirstMeta: Boolean;
 begin
   SearchText := Trim(ARequestInfo.Params.Values['q']);
   TagParam := Trim(ARequestInfo.Params.Values['tags']);
@@ -1160,7 +1212,40 @@ begin
       Json.Append('"senderAddress":"' + JsonEscape(Note.SenderAddress) + '",');
       Json.Append('"mailDate":"' + JsonEscape(Note.MailDate) + '",');
       Json.Append('"modifiedAt":"' + JsonEscape(Note.ModifiedAt) + '",');
-      Json.Append('"snippet":"' + JsonEscape(Note.SearchSnippet) + '"');
+      Json.Append('"snippet":"' + JsonEscape(Note.SearchSnippet) + '",');
+
+      Json.Append('"tags":[');
+      Tags := FDatabase.GetNoteTags(Note.MailNotesID);
+      try
+        IsFirstMeta := True;
+        for Tag in Tags do
+        begin
+          if not IsFirstMeta then
+            Json.Append(',');
+          IsFirstMeta := False;
+          Json.Append('"' + JsonEscape(Tag.Name) + '"');
+        end;
+      finally
+        Tags.Free;
+      end;
+      Json.Append('],');
+
+      Json.Append('"persons":[');
+      Persons := FDatabase.GetNotePersons(Note.MailNotesID);
+      try
+        IsFirstMeta := True;
+        for Person in Persons do
+        begin
+          if not IsFirstMeta then
+            Json.Append(',');
+          IsFirstMeta := False;
+          Json.Append('"' + JsonEscape(Person.Name) + '"');
+        end;
+      finally
+        Persons.Free;
+      end;
+      Json.Append(']');
+
       Json.Append('}');
     end;
     Json.Append('],"count":' + Items.Count.ToString + '}');
@@ -1551,6 +1636,75 @@ begin
   SendJson(AResponseInfo, '{"cleared":true}');
 end;
 
+
+procedure THttpServer.HandleGraphOffer(
+  ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+var
+  Mailbox: string;
+  Accounts: TGraphAccounts;
+  Account: TGraphAccount;
+  State: string;
+begin
+  Mailbox := Trim(LowerCase(ARequestInfo.Params.Values['mailboxAddress']));
+  if Mailbox = '' then
+  begin
+    SendJson(AResponseInfo, '{"error":"missing_mailbox"}', 400);
+    Exit;
+  end;
+  Accounts := TGraphAccounts.Create(FDatabase);
+  try
+    if not Accounts.TryGet(Mailbox, Account) then
+      State := 'unknown'
+    else
+      case Account.State of
+        gsAvailable: State := 'available';
+        gsDenied: State := 'denied';
+        gsAuthRequired: State := 'auth_required';
+        gsUnavailable: State := 'unavailable';
+      else
+        State := 'unknown';
+      end;
+    SendJson(AResponseInfo, '{"state":"' + State + '"}');
+  finally
+    Accounts.Free;
+  end;
+end;
+
+procedure THttpServer.HandleGraphDecision(
+  ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+var
+  Mailbox, Decision: string;
+  Accounts: TGraphAccounts;
+  Account: TGraphAccount;
+  StartSignIn: Boolean;
+begin
+  Mailbox := Trim(LowerCase(ARequestInfo.Params.Values['mailboxAddress']));
+  Decision := Trim(LowerCase(ARequestInfo.Params.Values['decision']));
+  if (Mailbox = '') or ((Decision <> 'accept') and (Decision <> 'decline')) then
+  begin
+    SendJson(AResponseInfo, '{"error":"invalid_request"}', 400);
+    Exit;
+  end;
+  StartSignIn := False;
+  Accounts := TGraphAccounts.Create(FDatabase);
+  try
+    if Accounts.TryGet(Mailbox, Account) then
+    begin
+      SendJson(AResponseInfo, '{"accepted":false,"reason":"already_decided"}');
+      Exit;
+    end;
+    // Entscheidung VOR dem asynchronen Start dauerhaft sichern.
+    Accounts.MarkDenied(Mailbox, 'Graph-Einrichtung einmalig angeboten.');
+    StartSignIn := (Decision = 'accept') and Assigned(FGraphSignInRequested);
+    SendJson(AResponseInfo, '{"accepted":true,"signInStarted":' +
+      LowerCase(BoolToStr(StartSignIn, True)) + '}');
+  finally
+    Accounts.Free;
+  end;
+  // Nur Windows: Anmeldung auf den Tray-Thread verschieben, niemals hier starten.
+  if StartSignIn then
+    FGraphSignInRequested();
+end;
 
 procedure THttpServer.HandleRepairQueueAdd(
   ARequestInfo: TIdHTTPRequestInfo;

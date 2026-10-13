@@ -1,8 +1,8 @@
-; MailNotes Agent - Windows Setup 0.2
+﻿; MailNotes Agent - Windows Setup 0.2
 ; Erstellt mit Inno Setup 6
 
 #define MyAppName "MailNotes Agent"
-#define MyAppVersion "1.2.0.0"
+#define MyAppVersion "1.2.1.0"
 #define MySetupVersion "0.2"
 #define MyAppPublisher "MailNotes"
 #define MyAppExeName "MailNotesAgent.exe"
@@ -42,7 +42,12 @@ Name: "german"; MessagesFile: "compiler:Languages\German.isl"
 [Tasks]
 Name: "autostart"; Description: "MailNotes Agent automatisch mit Windows starten"; GroupDescription: "Zusätzliche Aufgaben:"; Flags: checkedonce
 Name: "desktopicon"; Description: "Desktop-Symbol erstellen"; GroupDescription: "Zusätzliche Aufgaben:"; Flags: unchecked
-Name: "addinsetup"; Description: "Outlook-Add-in jetzt einrichten (manifest.xml)"; GroupDescription: "Zusätzliche Aufgaben:"; Flags: checkedonce
+Name: "addinsetup"; Description: "Outlook-Add-in erstmalig einrichten / Manifest erneut installieren"; GroupDescription: "Zusätzliche Aufgaben:"; Flags: checkedonce
+
+[InstallDelete]
+; Add-in-Dateien bei jedem Update vollständig ersetzen, damit keine alten
+; Webpack-Hash-Dateien oder sonstigen Altstände im Addin-Ordner verbleiben.
+Type: filesandordirs; Name: "{autopf}\MailNotes\Addin\*"
 
 [Files]
 Source: "..\Main\Win64\Release\MailNotesAgent.exe"; DestDir: "{app}"; Flags: ignoreversion

@@ -116,6 +116,7 @@ type
       const GraphState: Integer;
       const LastCheckedUTC, LastSuccessUTC, LastError: string
     );
+    procedure DeleteGraphAccount(const MailboxAddress: string);
     function LoadGraphAccount(
       const MailboxAddress: string;
       out TenantID, UserID: string;
@@ -2571,6 +2572,23 @@ begin
     LastCheckedUTC := Q.FieldByName('LastCheckedUTC').AsString;
     LastSuccessUTC := Q.FieldByName('LastSuccessUTC').AsString;
     LastError := Q.FieldByName('LastError').AsString;
+  finally
+    Q.Free;
+  end;
+end;
+
+procedure TDatabase.DeleteGraphAccount(const MailboxAddress: string);
+var
+  Q: TFDQuery;
+begin
+  if Trim(MailboxAddress) = '' then
+    raise EArgumentException.Create('MailboxAddress darf nicht leer sein.');
+  Q := TFDQuery.Create(nil);
+  try
+    Q.Connection := FConnection;
+    Q.SQL.Text := 'DELETE FROM GraphAccount WHERE MailboxAddress = :MailboxAddress';
+    Q.ParamByName('MailboxAddress').AsString := Trim(LowerCase(MailboxAddress));
+    Q.ExecSQL;
   finally
     Q.Free;
   end;

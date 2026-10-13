@@ -1,4 +1,4 @@
-unit uTrayIcon;
+﻿unit uTrayIcon;
 
 interface
 
@@ -112,6 +112,8 @@ type
     procedure OpenDataDirectory;
     procedure OpenLogFile;
     procedure ChangeDatabasePath;
+    procedure SignInMicrosoftGraph;
+    procedure QueueGraphSignIn;
     procedure CreateDatabaseBackup;
     procedure ChangeBackupDirectory;
     procedure SetAutoBackupIntervalByIndex(const AIndex: Integer);
@@ -184,7 +186,10 @@ uses
   System.Classes,
   System.StrUtils,
   uTrayIconResources,
-  uStatusDialog
+  uStatusDialog,
+  uGraphAuth,
+  uGraphAccounts,
+  uGraphTokenStore
 {$ELSEIF Defined(MACOS)}
   , Macapi.Helpers,
   Macapi.ObjCRuntime,
@@ -197,6 +202,7 @@ uses
 const
   WM_MAILNOTES_TRAY = WM_APP + 117;
   WM_MAILNOTES_UPDATE_RESULT = WM_APP + 118;
+  WM_MAILNOTES_GRAPH_SIGNIN = WM_APP + 119;
 
   TIMER_AUTO_UPDATE = 2001;
   INITIAL_UPDATE_DELAY_MS = 15000;
@@ -208,6 +214,7 @@ const
   MENU_OPEN_DATA = 1003;
   MENU_OPEN_LOG = 1004;
   MENU_CHANGE_DATABASE = 1005;
+  MENU_GRAPH_SIGN_IN = 1013;
   MENU_BACKUP_DATABASE = 1006;
   MENU_CHANGE_BACKUP_DIRECTORY = 1007;
   MENU_BACKUP_INTERVAL_1 = 1008;
@@ -240,6 +247,8 @@ begin
   FUpdatePromptedVersion := '';
   FShutdownMessage := RegisterWindowMessage('MailNotesAgent.Shutdown');
   FWindowHandle := AllocateHWnd(WindowMessage);
+  if FHttpServer <> nil then
+    FHttpServer.OnGraphSignInRequested := QueueGraphSignIn;
   CreateTrayMenu;
   AddTrayIcon;
 //  FBackupScheduler := TBackupScheduler.Create(FHttpServer);
@@ -266,6 +275,8 @@ begin
   if FWindowHandle <> 0 then
     KillTimer(FWindowHandle, TIMER_AUTO_UPDATE);
 
+  if FHttpServer <> nil then
+    FHttpServer.OnGraphSignInRequested := nil;
   RemoveTrayIcon;
   DestroyTrayMenu;
 
@@ -340,6 +351,13 @@ begin
         Exit;
       end;
 
+    WM_MAILNOTES_GRAPH_SIGNIN:
+      begin
+        SignInMicrosoftGraph;
+        Message.Result := 0;
+        Exit;
+      end;
+
     WM_MAILNOTES_UPDATE_RESULT:
       begin
         HandleAutomaticUpdateResult(Pointer(Message.WParam));
@@ -349,7 +367,7 @@ begin
 
     WM_MAILNOTES_TRAY:
       case Message.LParam of
-        WM_LBUTTONDBLCLK,
+        WM_LBUTTONUP,
         WM_RBUTTONUP,
         WM_CONTEXTMENU:
           ShowTrayMenu;
@@ -380,6 +398,8 @@ begin
   AppendMenu(FPopupMenu, MF_STRING, MENU_OPEN_DATA, 'Datenordner ' + WideChar($00F6) + 'ffnen');
   AppendMenu(FPopupMenu, MF_STRING, MENU_OPEN_LOG, 'Logdatei ' + WideChar($00F6) + 'ffnen');
   AppendMenu(FPopupMenu, MF_STRING, MENU_CHANGE_DATABASE, 'Datenbankpfad ' + WideChar($00E4) + 'ndern...');
+  AppendMenu(FPopupMenu, MF_SEPARATOR, 0, nil);
+  AppendMenu(FPopupMenu, MF_STRING, MENU_GRAPH_SIGN_IN, 'Microsoft Graph anmelden...');
   AppendMenu(FPopupMenu, MF_SEPARATOR, 0, nil);
   AppendMenu(FPopupMenu, MF_STRING, MENU_BACKUP_DATABASE, 'Datenbank sichern ...');
   AppendMenu(FPopupMenu, MF_STRING, MENU_CHANGE_BACKUP_DIRECTORY, 'Backup-Ziel ' + WideChar($00E4) + 'ndern ...');
@@ -549,6 +569,10 @@ begin
     MENU_CHANGE_DATABASE:
       ChangeDatabasePath;
 
+    MENU_GRAPH_SIGN_IN:
+      SignInMicrosoftGraph;
+
+
     MENU_BACKUP_DATABASE:
       CreateDatabaseBackup;
 
@@ -667,6 +691,101 @@ begin
   MessageBoxW(FWindowHandle, PWideChar(DirectoryName),
     'Backup-Ziel gespeichert', MB_OK or MB_ICONINFORMATION);
 end;
+
+procedure TTrayIcon.QueueGraphSignIn;
+begin
+  // Der HTTP-Worker stellt nur eine Nachricht zu; der Browser-Dialog
+  // startet spaeter in der normalen Windows-Nachrichtenschleife.
+  if FWindowHandle <> 0 then
+    PostMessage(FWindowHandle, WM_MAILNOTES_GRAPH_SIGNIN, 0, 0);
+end;
+
+procedure TTrayIcon.SignInMicrosoftGraph;
+var
+  Verifier: string;
+  AuthResult: TGraphAuthorizationResult;
+  Tokens: TGraphTokenResult;
+  UserInfo: TGraphUserInfo;
+  GraphAccounts: TGraphAccounts;
+  ErrorText: string;
+  MailboxAddress: string;
+begin
+  try
+    if not TGraphAuth.Authorize(Verifier, AuthResult) then
+    begin
+      ErrorText := AuthResult.ErrorDescription;
+      if ErrorText = '' then
+        ErrorText := AuthResult.Error;
+      if ErrorText = '' then
+        ErrorText := 'Die Microsoft-Graph-Anmeldung wurde abgebrochen oder ist abgelaufen.';
+      MessageBox(FWindowHandle, PChar(ErrorText), 'MailNotes - Microsoft Graph',
+        MB_OK or MB_ICONWARNING);
+      Exit;
+    end;
+
+    if not TGraphAuth.ExchangeAuthorizationCode(
+      AuthResult.AuthorizationCode, Verifier, Tokens, ErrorText) then
+    begin
+      MessageBox(FWindowHandle, PChar('Die Graph-Anmeldung konnte nicht abgeschlossen werden.' +
+        sLineBreak + sLineBreak + ErrorText), 'MailNotes - Microsoft Graph',
+        MB_OK or MB_ICONERROR);
+      Exit;
+    end;
+
+    if not TGraphAuth.GetMe(Tokens.AccessToken, UserInfo, ErrorText) then
+    begin
+      MessageBox(FWindowHandle, PChar('Das angemeldete Graph-Konto konnte nicht ermittelt werden.' +
+        sLineBreak + sLineBreak + ErrorText), 'MailNotes - Microsoft Graph',
+        MB_OK or MB_ICONERROR);
+      Exit;
+    end;
+
+    MailboxAddress := Trim(UserInfo.Mail);
+    if MailboxAddress = '' then
+      MailboxAddress := Trim(UserInfo.UserPrincipalName);
+
+    if MailboxAddress = '' then
+    begin
+      MessageBox(FWindowHandle,
+        'Microsoft Graph hat keine Mailadresse f' + WideChar($00FC) + 'r das angemeldete Konto geliefert.',
+        'MailNotes - Microsoft Graph', MB_OK or MB_ICONERROR);
+      Exit;
+    end;
+
+    if Tokens.RefreshToken = '' then
+    begin
+      MessageBox(FWindowHandle,
+        'Microsoft Graph hat kein Refresh-Token geliefert.',
+        'MailNotes - Microsoft Graph', MB_OK or MB_ICONERROR);
+      Exit;
+    end;
+
+    TGraphTokenStore.SaveRefreshToken(MailboxAddress, Tokens.RefreshToken);
+
+    GraphAccounts := TGraphAccounts.Create(FHttpServer.Database);
+    try
+      GraphAccounts.MarkAvailable(
+        MailboxAddress,
+        TGraphAuth.ConfiguredTenantID,
+        UserInfo.ID
+      );
+    finally
+      GraphAccounts.Free;
+    end;
+
+    MessageBox(FWindowHandle,
+      PChar('Microsoft Graph ist jetzt f' + WideChar($00FC) + 'r ' +
+        MailboxAddress + ' eingerichtet.'),
+      'MailNotes - Microsoft Graph', MB_OK or MB_ICONINFORMATION);
+  except
+    on E: Exception do
+      MessageBox(FWindowHandle,
+        PChar('Microsoft Graph konnte nicht eingerichtet werden.' +
+          sLineBreak + sLineBreak + E.Message),
+        'MailNotes - Microsoft Graph', MB_OK or MB_ICONERROR);
+  end;
+end;
+
 
 procedure TTrayIcon.CreateDatabaseBackup;
 var
@@ -1047,16 +1166,16 @@ begin
   if FUpdateAvailable then
   begin
     if FLatestVersion <> '' then
-      MenuText := 'Update verfügbar (' + FLatestVersion + ')...'
+      MenuText := 'Update verf' + WideChar($00FC) + 'gbar (' + FLatestVersion + ')...'
     else
-      MenuText := 'Update verfügbar...';
+      MenuText := 'Update verf' + WideChar($00FC) + 'gbar...';
 
-    ModifyMenu(
+    ModifyMenuW(
       FPopupMenu,
       MENU_CHECK_UPDATES,
       MF_BYCOMMAND or MF_STRING,
       MENU_CHECK_UPDATES,
-      PChar(MenuText)
+      PWideChar(MenuText)
     );
 
     SetMenuDefaultItem(
@@ -1067,12 +1186,12 @@ begin
   end
   else
   begin
-    ModifyMenu(
+    ModifyMenuW(
       FPopupMenu,
       MENU_CHECK_UPDATES,
       MF_BYCOMMAND or MF_STRING,
       MENU_CHECK_UPDATES,
-      PChar('Nach Updates suchen...')
+      PWideChar('Nach Updates suchen...')
     );
 
     SetMenuDefaultItem(
@@ -1183,9 +1302,9 @@ begin
 
     tsUpdateAvailable:
       if FLatestVersion <> '' then
-        Result := 'Update ' + FLatestVersion + ' verfügbar'
+        Result := 'Update ' + FLatestVersion + ' verf' + WideChar($00FC) + 'gbar'
       else
-        Result := 'Update verfügbar';
+        Result := 'Update verf' + WideChar($00FC) + 'gbar';
   else
     Result := 'Bereit';
   end;
