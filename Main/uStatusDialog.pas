@@ -58,6 +58,7 @@ var
   FontNormal: HFONT;
   FontTitle: HFONT;
   FontSubtitle: HFONT;
+  FontCopyright: HFONT;
   FontSection: HFONT;
   FontVersion: HFONT;
   BackgroundBrush: HBRUSH;
@@ -103,6 +104,8 @@ begin
     FontTitle := CreateUiFont(18, FW_SEMIBOLD);
   if FontSubtitle = 0 then
     FontSubtitle := CreateUiFont(10, FW_NORMAL);
+  if FontCopyright = 0 then
+    FontCopyright := CreateUiFont(7, FW_NORMAL);
   if FontSection = 0 then
     FontSection := CreateUiFont(10, FW_SEMIBOLD);
   if FontVersion = 0 then
@@ -261,7 +264,9 @@ function StatusInformationText: string;
 begin
   Result :=
     'MailNotes Agent' + sLineBreak +
-    'Version: ' + TAppInfo.DisplayVersion + sLineBreak +
+    'Version: ' + TAppInfo.Version + sLineBreak +
+    'Erstellt: ' + TAppInfo.BuildTimeText + sLineBreak +
+    'Idea & written by Gerhard Waldhelm  ' + WideChar($00A9) + ' Copyright 2026' + sLineBreak +
     'Plattform: ' + TAppInfo.PlatformName + ' (x64)' + sLineBreak +
     'HTTP-Server: Port 48571 – OK' + sLineBreak +
     'SQLite: ' + DatabaseStatusText + sLineBreak +
@@ -447,7 +452,7 @@ begin
   AddStatic(WindowHandle, 'MailNotes Agent', 112, 22, 390, 38, SS_LEFT, FontTitle);
   AddStatic(WindowHandle, 'Statusinformationen und Pfade', 113, 62, 390, 24, SS_LEFT, FontSubtitle);
 
-  AddStatic(WindowHandle, TAppInfo.DisplayVersion, 630, 22, 145, 38, SS_RIGHT, FontVersion);
+  AddStatic(WindowHandle, TAppInfo.Version, 630, 22, 145, 38, SS_RIGHT, FontVersion);
   if TAppInfo.BuildType <> '' then
   begin
     AddStatic(WindowHandle, TAppInfo.BuildType, 600, 58, 175, 22, SS_RIGHT, FontSubtitle);
@@ -457,19 +462,25 @@ begin
     AddStatic(WindowHandle, TAppInfo.PlatformName + ' (x64)', 600, 62, 175, 24, SS_RIGHT, FontSubtitle);
 
   AddStatic(WindowHandle, 'Version', 56, 132, 130, 22);
-  AddStatic(WindowHandle, TAppInfo.DisplayVersion, 205, 132, 160, 22);
+  AddStatic(WindowHandle, TAppInfo.Version, 175, 132, 160, 22);
 
-  AddStatic(WindowHandle, 'Plattform', 56, 171, 130, 22);
-  AddStatic(WindowHandle, TAppInfo.PlatformName + ' (x64)', 205, 171, 160, 22);
+  AddStatic(WindowHandle, 'Plattform', 56, 164, 130, 22);
+  AddStatic(WindowHandle, TAppInfo.PlatformName + ' (x64)', 175, 164, 160, 22);
 
-  AddStatic(WindowHandle, 'Autostart', 56, 210, 130, 22);
-  AddStatic(WindowHandle, AutostartStatusText, 205, 210, 160, 22, SS_LEFT, 0, ID_STATUS_AUTOSTART);
+  AddStatic(WindowHandle, 'Erstellt', 56, 228, 130, 20);
+  AddStatic(WindowHandle, TAppInfo.BuildTimeText, 175, 228, 250, 20);
+  AddStatic(WindowHandle, 'Idea & written by Gerhard Waldhelm  ' +
+    WideChar($00A9) + ' Copyright 2026', 175, 251, 520, 18,
+    SS_LEFT or SS_NOPREFIX, FontCopyright);
 
-  AddStatic(WindowHandle, 'HTTP-Server', 420, 132, 130, 22);
-  AddStatic(WindowHandle, 'Port 48571 – OK', 560, 132, 175, 22, SS_LEFT, 0, ID_STATUS_HTTP);
+  AddStatic(WindowHandle, 'Autostart', 56, 196, 130, 22);
+  AddStatic(WindowHandle, AutostartStatusText, 175, 196, 160, 22, SS_LEFT, 0, ID_STATUS_AUTOSTART);
 
-  AddStatic(WindowHandle, 'SQLite', 420, 171, 130, 22);
-  AddStatic(WindowHandle, DatabaseStatusText, 560, 171, 175, 22, SS_LEFT, 0, ID_STATUS_SQLITE);
+  AddStatic(WindowHandle, 'HTTP-Server', 385, 132, 130, 22);
+  AddStatic(WindowHandle, 'Port 48571 – OK', 525, 132, 175, 22, SS_LEFT, 0, ID_STATUS_HTTP);
+
+  AddStatic(WindowHandle, 'SQLite', 385, 164, 130, 22);
+  AddStatic(WindowHandle, DatabaseStatusText, 525, 164, 175, 22, SS_LEFT, 0, ID_STATUS_SQLITE);
 
   AddPathRow(
     WindowHandle,
@@ -813,7 +824,16 @@ begin
     while IsWindow(StatusWindow) do
     begin
       MessageResult := Integer(GetMessageW(Msg, 0, 0, 0));
-      if MessageResult <= 0 then
+      if MessageResult = 0 then
+      begin
+        // WM_QUIT darf nicht in der modalen Status-Schleife verschwinden.
+        // Fenster schliessen und Beenden an die aeussere Schleife weitergeben.
+        if IsWindow(StatusWindow) then
+          DestroyWindow(StatusWindow);
+        PostQuitMessage(Integer(Msg.wParam));
+        Break;
+      end;
+      if MessageResult < 0 then
         Break;
 
       if not IsDialogMessageW(StatusWindow, Msg) then

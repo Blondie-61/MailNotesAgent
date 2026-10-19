@@ -8,8 +8,9 @@
 
 {$IF Defined(MSWINDOWS)}
   {$R *.res}
-  {$R *.dres}
 {$ENDIF}
+
+{$R *.dres}
 
 uses
   System.SysUtils,
@@ -21,6 +22,7 @@ uses
   FireDAC.Phys.SQLiteWrapper.Stat,
   {$ENDIF}
   uAppPaths in 'uAppPaths.pas',
+  uAddinDeploy in 'uAddinDeploy.pas',
   uAppInfo in 'uAppInfo.pas',
   uRuntimeConfig in 'uRuntimeConfig.pas',
   uVersion in 'uVersion.pas',
@@ -100,6 +102,15 @@ begin
         ShowAlreadyRunning;
         Exit;
       end;
+
+{$IF Defined(MACOS)}
+      try
+        TAddinDeploy.EnsureInstalled;
+      except
+        on E: Exception do
+          Writeln('MailNotes Warnung: Add-in-Bereitstellung fehlgeschlagen: ' + E.Message);
+      end;
+{$ENDIF}
 
       Database := TDatabase.Create;
       Database.Open;

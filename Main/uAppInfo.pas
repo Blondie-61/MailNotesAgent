@@ -13,6 +13,7 @@ type
     class function Version: string; static;
     class function DisplayVersion: string; static;
     class function BuildType: string; static;
+    class function BuildTimeText: string; static;
     class function PlatformName: string; static;
     class function CompareVersions(const AVersion1, AVersion2: string): Integer; static;
   end;
@@ -91,8 +92,21 @@ begin
     ]
   );
 {$ELSE}
-  Result := '1.2.1.0';
+  Result := '1.2.1.1';
 {$ENDIF}
+end;
+
+class function TAppInfo.BuildTimeText: string;
+var
+  Stamp: TDateTime;
+begin
+  Result := 'unbekannt';
+  try
+    if FileAge(ParamStr(0), Stamp) then
+      Result := FormatDateTime('dd.mm.yyyy, hh:nn', Stamp) + ' Uhr';
+  except
+    // Bei nicht lesbarem Dateizeitstempel bleibt die Anzeige neutral.
+  end;
 end;
 
 class function TAppInfo.DisplayVersion: string;

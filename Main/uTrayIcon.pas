@@ -189,7 +189,8 @@ uses
   uStatusDialog,
   uGraphAuth,
   uGraphAccounts,
-  uGraphTokenStore
+  uGraphTokenStore,
+  uAppInfo
 {$ELSEIF Defined(MACOS)}
   , Macapi.Helpers,
   Macapi.ObjCRuntime,
@@ -392,7 +393,8 @@ begin
     RaiseLastOSError;
 
   AppendMenu(FPopupMenu, MF_STRING or MF_GRAYED, MENU_STATUS, PChar(StatusText));
-  AppendMenu(FPopupMenu, MF_STRING, MENU_SHOW_STATUS, 'Statusinformationen...');
+  AppendMenu(FPopupMenu, MF_STRING, MENU_SHOW_STATUS,
+    PChar('MailNotes Agent v' + TAppInfo.Version));
   AppendMenu(FPopupMenu, MF_STRING, MENU_CHECK_UPDATES, 'Nach Updates suchen...');
   AppendMenu(FPopupMenu, MF_SEPARATOR, 0, nil);
   AppendMenu(FPopupMenu, MF_STRING, MENU_OPEN_DATA, 'Datenordner ' + WideChar($00F6) + 'ffnen');
@@ -1539,7 +1541,7 @@ begin
 
   MenuItem := TNSMenuItem.Wrap(
     TNSMenuItem.Alloc.initWithTitle(
-      StrToNSStr('MailNotes Agent ' + WideChar($2026)),
+      StrToNSStr('MailNotes Agent v' + TAppInfo.Version),
       sel_getUid('showAgentInfo'),
       StrToNSStr('')
     )
@@ -1746,7 +1748,7 @@ begin
   begin
     FInfoWindow := TNSWindow.Wrap(
       TNSWindow.Alloc.initWithContentRect(
-        MakeNSRect(0, 0, 620, 394),
+        MakeNSRect(0, 0, 620, 444),
         NSTitledWindowMask or NSClosableWindowMask,
         NSBackingStoreBuffered,
         False
@@ -1759,12 +1761,21 @@ begin
 
     ContentView := TNSView.Wrap(FInfoWindow.contentView);
 
-    CaptionLabel := NewLabel('MailNotes Agent', 24, 348, 570, 24);
+    CaptionLabel := NewLabel('MailNotes Agent', 24, 398, 570, 24);
     CaptionLabel.setFont(TNSFont.Wrap(TNSFont.OCClass.boldSystemFontOfSize(16)));
     ContentView.addSubview(CaptionLabel);
     CaptionLabel.release;
 
-    VersionLabel := NewLabel('Version: ' + TAppInfo.Version, 24, 320, 570, 20);
+    VersionLabel := NewLabel('Version: ' + TAppInfo.Version, 24, 370, 570, 20);
+    ContentView.addSubview(VersionLabel);
+    VersionLabel.release;
+
+    VersionLabel := NewLabel('Erstellt: ' + TAppInfo.BuildTimeText, 24, 347, 570, 20);
+    ContentView.addSubview(VersionLabel);
+    VersionLabel.release;
+
+    VersionLabel := NewLabel('Idea & written by Gerhard Waldhelm  ' + WideChar($00A9) +
+      ' Copyright 2026', 24, 324, 570, 20);
     ContentView.addSubview(VersionLabel);
     VersionLabel.release;
 
