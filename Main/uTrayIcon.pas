@@ -38,6 +38,11 @@ type
     procedure revealBackupDirectoryInFinder; cdecl;
     procedure changeDatabasePath; cdecl;
     procedure createDatabaseBackup; cdecl;
+    procedure restoreDatabaseBackup; cdecl;
+    procedure restoreRestartYes; cdecl;
+    procedure restoreRestartNo; cdecl;
+    procedure restoreWarningYes; cdecl;
+    procedure restoreWarningNo; cdecl;
     procedure changeBackupDirectory; cdecl;
     procedure autoBackupInterval1; cdecl;
     procedure autoBackupInterval2; cdecl;
@@ -61,6 +66,11 @@ type
     procedure revealBackupDirectoryInFinder; cdecl;
     procedure changeDatabasePath; cdecl;
     procedure createDatabaseBackup; cdecl;
+    procedure restoreDatabaseBackup; cdecl;
+    procedure restoreRestartYes; cdecl;
+    procedure restoreRestartNo; cdecl;
+    procedure restoreWarningYes; cdecl;
+    procedure restoreWarningNo; cdecl;
     procedure changeBackupDirectory; cdecl;
     procedure autoBackupInterval1; cdecl;
     procedure autoBackupInterval2; cdecl;
@@ -79,6 +89,7 @@ type
   TTrayIcon = class
   private
     FState: TTrayState;
+    FRestartRequested: Boolean;
 {$IF Defined(MSWINDOWS)}
     FWindowHandle: HWND;
     FPopupMenu: HMENU;
@@ -115,6 +126,7 @@ type
     procedure SignInMicrosoftGraph;
     procedure QueueGraphSignIn;
     procedure CreateDatabaseBackup;
+    procedure RestoreDatabaseBackup;
     procedure ChangeBackupDirectory;
     procedure SetAutoBackupIntervalByIndex(const AIndex: Integer);
     procedure UpdateAutoBackupMenu;
@@ -129,6 +141,7 @@ type
     FStatusImage: NSImage;
     FMenuHandler: TMacMenuHandler;
     FInfoWindow: NSWindow;
+    FRestoreResultWindow: NSWindow;
     FHttpServer: THttpServer;
     FDatabaseLink: NSButton;
     FBackupDirectoryLink: NSButton;
@@ -149,6 +162,12 @@ type
     procedure RevealConfigInFinder;
     procedure ChangeDatabasePath;
     procedure CreateDatabaseBackup;
+    procedure RestoreDatabaseBackup;
+    procedure ChooseRestoreBackup;
+    procedure ShowRestoreResult(const ATitle, AText: string;
+      const AAskRestart: Boolean; const AConfirmOverwrite: Boolean = False);
+    procedure CloseRestoreResult;
+    procedure RestartAfterRestore;
     procedure ChangeBackupDirectory;
     procedure SetAutoBackupIntervalByIndex(const AIndex: Integer);
     procedure UpdateAutoBackupMenu;
@@ -171,6 +190,7 @@ type
 
     procedure SetState(const State: TTrayState);
     procedure Run;
+    property RestartRequested: Boolean read FRestartRequested;
   end;
 
 implementation
@@ -217,6 +237,7 @@ const
   MENU_CHANGE_DATABASE = 1005;
   MENU_GRAPH_SIGN_IN = 1013;
   MENU_BACKUP_DATABASE = 1006;
+  MENU_RESTORE_DATABASE = 1014;
   MENU_CHANGE_BACKUP_DIRECTORY = 1007;
   MENU_BACKUP_INTERVAL_1 = 1008;
   MENU_BACKUP_INTERVAL_2 = 1009;
@@ -237,6 +258,7 @@ begin
   inherited Create;
 
   FHttpServer := AHttpServer;
+  FRestartRequested := False;
   FBackupScheduler := nil;
   FBackupAutoMenu := 0;
   FState := tsOK;
@@ -404,6 +426,7 @@ begin
   AppendMenu(FPopupMenu, MF_STRING, MENU_GRAPH_SIGN_IN, 'Microsoft Graph anmelden...');
   AppendMenu(FPopupMenu, MF_SEPARATOR, 0, nil);
   AppendMenu(FPopupMenu, MF_STRING, MENU_BACKUP_DATABASE, 'Datenbank sichern ...');
+  AppendMenu(FPopupMenu, MF_STRING, MENU_RESTORE_DATABASE, 'Datenbank wiederherstellen ...');
   AppendMenu(FPopupMenu, MF_STRING, MENU_CHANGE_BACKUP_DIRECTORY, 'Backup-Ziel ' + WideChar($00E4) + 'ndern ...');
 
   FBackupAutoMenu := CreatePopupMenu;
@@ -577,6 +600,9 @@ begin
 
     MENU_BACKUP_DATABASE:
       CreateDatabaseBackup;
+
+    MENU_RESTORE_DATABASE:
+      RestoreDatabaseBackup;
 
     MENU_CHANGE_BACKUP_DIRECTORY:
       ChangeBackupDirectory;
@@ -815,6 +841,51 @@ begin
     on E: Exception do
       MessageBoxW(FWindowHandle, PWideChar(E.Message), 'Backup fehlgeschlagen',
         MB_OK or MB_ICONERROR);
+  end;
+end;
+
+procedure TTrayIcon.RestoreDatabaseBackup;
+var
+  Dialog: TOpenFilenameW;
+  FileBuffer: array[0..32767] of WideChar;
+  InitialDir, SelectedFile, FilterText: string;
+begin
+  if FHttpServer = nil then Exit;
+  if MessageBoxW(FWindowHandle,
+    'Die aktuelle Datenbank wird durch eine Sicherung ersetzt.' + sLineBreak +
+    'Bitte schliessen Sie vorher alle MailNotes-Add-in-Fenster.' + sLineBreak +
+    'Möchten Sie fortfahren?', 'MailNotes - Datenbank wiederherstellen',
+    MB_YESNO or MB_ICONWARNING or MB_DEFBUTTON2) <> IDYES then Exit;
+
+  FillChar(Dialog, SizeOf(Dialog), 0);
+  FillChar(FileBuffer, SizeOf(FileBuffer), 0);
+  InitialDir := TAppPaths.BackupDirectory;
+  FilterText := 'SQLite-Sicherungen (*.sqlite)' + #0 + '*.sqlite' + #0 +
+    'Alle Dateien (*.*)' + #0 + '*.*' + #0#0;
+  Dialog.lStructSize := SizeOf(Dialog);
+  Dialog.hwndOwner := FWindowHandle;
+  Dialog.lpstrFilter := PWideChar(FilterText);
+  Dialog.lpstrFile := @FileBuffer[0];
+  Dialog.nMaxFile := Length(FileBuffer);
+  if (InitialDir <> '') and TDirectory.Exists(InitialDir) then
+    Dialog.lpstrInitialDir := PWideChar(InitialDir);
+  Dialog.Flags := OFN_FILEMUSTEXIST or OFN_PATHMUSTEXIST or OFN_EXPLORER;
+  if not GetOpenFileNameW(Dialog) then Exit;
+  SelectedFile := string(PWideChar(@FileBuffer[0]));
+  try
+    FHttpServer.RestoreDatabaseBackup(SelectedFile);
+    if MessageBoxW(FWindowHandle,
+      'Datenbank wurde wiederhergestellt.' + sLineBreak +
+      'MailNotesAgent jetzt neu starten? (Empfohlen)',
+      'MailNotes Restore', MB_YESNO or MB_ICONINFORMATION or MB_DEFBUTTON1) = IDYES then
+    begin
+      FRestartRequested := True;
+      PostQuitMessage(0);
+    end;
+  except
+    on E: Exception do
+      MessageBoxW(FWindowHandle, PWideChar(E.Message),
+        'Wiederherstellung fehlgeschlagen', MB_OK or MB_ICONERROR);
   end;
 end;
 
@@ -1376,6 +1447,31 @@ begin
 end;
 
 
+procedure TMacMenuHandler.restoreDatabaseBackup;
+begin
+  if FOwner <> nil then FOwner.RestoreDatabaseBackup;
+end;
+
+procedure TMacMenuHandler.restoreRestartYes;
+begin
+  if FOwner <> nil then FOwner.RestartAfterRestore;
+end;
+
+procedure TMacMenuHandler.restoreRestartNo;
+begin
+  if FOwner <> nil then FOwner.CloseRestoreResult;
+end;
+
+procedure TMacMenuHandler.restoreWarningYes;
+begin
+  if FOwner <> nil then FOwner.ChooseRestoreBackup;
+end;
+
+procedure TMacMenuHandler.restoreWarningNo;
+begin
+  if FOwner <> nil then FOwner.CloseRestoreResult;
+end;
+
 procedure TMacMenuHandler.changeBackupDirectory;
 begin
   if FOwner <> nil then
@@ -1419,7 +1515,9 @@ begin
   FPopupMenu := nil;
   FStatusImage := nil;
   FInfoWindow := nil;
+  FRestoreResultWindow := nil;
   FHttpServer := AHttpServer;
+  FRestartRequested := False;
   FDatabaseLink := nil;
   FBackupDirectoryLink := nil;
   FLastBackupLabel := nil;
@@ -1440,6 +1538,7 @@ end;
 
 destructor TTrayIcon.Destroy;
 begin
+  CloseRestoreResult;
   if FBackupScheduler <> nil then
   begin
     FBackupScheduler.Stop;
@@ -1568,6 +1667,13 @@ begin
   );
   MenuItem.setTarget(FMenuHandler.GetObjectID);
   FBackupMenuItem := MenuItem;
+  FPopupMenu.addItem(MenuItem);
+  MenuItem.release;
+
+  MenuItem := TNSMenuItem.Wrap(TNSMenuItem.Alloc.initWithTitle(
+    StrToNSStr('Datenbank wiederherstellen ' + WideChar($2026)),
+    sel_getUid('restoreDatabaseBackup'), StrToNSStr('')));
+  MenuItem.setTarget(FMenuHandler.GetObjectID);
   FPopupMenu.addItem(MenuItem);
   MenuItem.release;
 
@@ -2126,6 +2232,124 @@ begin
   end;
 end;
 
+// Eigenes, nicht-modales Cocoa-Fenster statt NSAlert.runModal.
+// Der Agent besitzt kein normales Hauptfenster; NSAlert scheitert hier
+// unter macOS 27 beim AppKit/CoreUI-Layout (SIGTRAP).
+procedure TTrayIcon.ShowRestoreResult(const ATitle, AText: string;
+  const AAskRestart, AConfirmOverwrite: Boolean);
+var
+  ContentView: NSView;
+  LabelText: NSTextField;
+  Button: NSButton;
+
+  procedure AddButton(const ACaption: string; const ASelector: PAnsiChar;
+    const AX: Single);
+  begin
+    Button := TNSButton.Wrap(TNSButton.Alloc.initWithFrame(
+      MakeNSRect(AX, 18, 100, 32)));
+    Button.setTitle(StrToNSStr(ACaption));
+    // Return/Enter aktiviert bei der Restore-Warnung sicher Abbrechen.
+    if AConfirmOverwrite and (ACaption = 'Abbrechen') then
+      Button.setKeyEquivalent(StrToNSStr(#13));
+    Button.setBezelStyle(NSRoundedBezelStyle);
+    Button.setTarget(FMenuHandler.GetObjectID);
+    Button.setAction(sel_getUid(ASelector));
+    ContentView.addSubview(Button);
+    Button.release;
+  end;
+begin
+  CloseRestoreResult;
+  FRestoreResultWindow := TNSWindow.Wrap(TNSWindow.Alloc.initWithContentRect(
+    MakeNSRect(0, 0, 490, 160),
+    NSTitledWindowMask or NSClosableWindowMask,
+    NSBackingStoreBuffered, False));
+  FRestoreResultWindow.setReleasedWhenClosed(False);
+  FRestoreResultWindow.setTitle(StrToNSStr(ATitle));
+  FRestoreResultWindow.center;
+  ContentView := TNSView.Wrap(FRestoreResultWindow.contentView);
+  LabelText := TNSTextField.Wrap(TNSTextField.Alloc.initWithFrame(
+    MakeNSRect(22, 65, 446, 68)));
+  LabelText.setStringValue(StrToNSStr(AText));
+  LabelText.setEditable(False);
+  LabelText.setSelectable(True);
+  LabelText.setBezeled(False);
+  LabelText.setDrawsBackground(False);
+  ContentView.addSubview(LabelText);
+  LabelText.release;
+  if AConfirmOverwrite then
+  begin
+    AddButton('Weiter', 'restoreWarningYes', 256);
+    AddButton('Abbrechen', 'restoreWarningNo', 368);
+  end
+  else if AAskRestart then
+  begin
+    AddButton('Ja', 'restoreRestartYes', 256);
+    AddButton('Nein', 'restoreRestartNo', 368);
+  end
+  else
+    AddButton('Schliessen', 'restoreRestartNo', 368);
+  FRestoreResultWindow.makeKeyAndOrderFront(nil);
+  TNSApplication.Wrap(TNSApplication.OCClass.sharedApplication).activateIgnoringOtherApps(True);
+end;
+
+procedure TTrayIcon.CloseRestoreResult;
+begin
+  if FRestoreResultWindow <> nil then
+  begin
+    FRestoreResultWindow.orderOut(nil);
+    FRestoreResultWindow.release;
+    FRestoreResultWindow := nil;
+  end;
+end;
+
+procedure TTrayIcon.RestartAfterRestore;
+begin
+  CloseRestoreResult;
+  FRestartRequested := True;
+  TNSApplication.Wrap(TNSApplication.OCClass.sharedApplication).stop(nil);
+end;
+
+procedure TTrayIcon.RestoreDatabaseBackup;
+begin
+  if FHttpServer = nil then Exit;
+  ShowRestoreResult('Datenbank wiederherstellen?',
+    'Die aktuelle Datenbank wird durch die ausgewählte Sicherung ersetzt. ' +
+    'Bitte schliessen Sie vorher alle MailNotes-Add-in-Fenster.',
+    False, True);
+end;
+
+procedure TTrayIcon.ChooseRestoreBackup;
+var
+  Panel: NSOpenPanel;
+  SelectedURL: NSURL;
+  SelectedFile: string;
+begin
+  CloseRestoreResult;
+  if FHttpServer = nil then Exit;
+  Panel := TNSOpenPanel.Wrap(TNSOpenPanel.OCClass.openPanel);
+  Panel.setTitle(StrToNSStr('Datenbank wiederherstellen'));
+  Panel.setPrompt(StrToNSStr('Wiederherstellen'));
+  Panel.setCanChooseFiles(True);
+  Panel.setCanChooseDirectories(False);
+  Panel.setAllowsMultipleSelection(False);
+  if (TAppPaths.BackupDirectory <> '') and
+     TDirectory.Exists(TAppPaths.BackupDirectory) then
+    Panel.setDirectoryURL(TNSURL.Wrap(TNSURL.OCClass.fileURLWithPath(
+      StrToNSStr(TAppPaths.BackupDirectory))));
+  if Panel.runModal <> 1 then Exit;
+  SelectedURL := Panel.URL;
+  if SelectedURL = nil then Exit;
+  SelectedFile := NSStrToStr(SelectedURL.path);
+  try
+    FHttpServer.RestoreDatabaseBackup(SelectedFile);
+    ShowRestoreResult('Datenbank wurde wiederhergestellt.',
+      'MailNotesAgent jetzt neu starten? (Empfohlen)', True);
+  except
+    on E: Exception do
+      ShowRestoreResult('Wiederherstellung fehlgeschlagen', E.Message, False);
+  end;
+end;
+
 procedure TTrayIcon.ChangeDatabasePath;
 var
   Panel: NSOpenPanel;
@@ -2230,6 +2454,7 @@ constructor TTrayIcon.Create;
 begin
   inherited Create;
   FState := tsOK;
+  FRestartRequested := False;
 end;
 
 

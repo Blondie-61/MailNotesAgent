@@ -14,9 +14,12 @@
 
 uses
   System.SysUtils,
+  System.IOUtils,
   {$IF Defined(MSWINDOWS)}
   Winapi.Windows,
+  Winapi.ShellAPI,
   {$ELSEIF Defined(MACOS)}
+  Posix.Stdlib,
   FireDAC.UI.Intf,
   FireDAC.ConsoleUI.Wait,
   FireDAC.Phys.SQLiteWrapper.Stat,
@@ -25,6 +28,7 @@ uses
   uAddinDeploy in 'uAddinDeploy.pas',
   uAppInfo in 'uAppInfo.pas',
   uRuntimeConfig in 'uRuntimeConfig.pas',
+  uDiagnostics in 'uDiagnostics.pas',
   uVersion in 'uVersion.pas',
   uGithubRelease in 'uGithubRelease.pas',
   uUpdater in 'uUpdater.pas',
@@ -50,6 +54,7 @@ var
   HttpServer: THttpServer;
   TrayIcon: TTrayIcon;
   SingleInstance: TSingleInstanceGuard;
+  RestartRequested: Boolean;
 
 procedure ShowAlreadyRunning;
 begin
@@ -79,11 +84,46 @@ begin
 {$ENDIF}
 end;
 
+{$IF Defined(MACOS)}
+function MacSystem(Command: PAnsiChar): Integer; cdecl;
+  external '/usr/lib/libSystem.B.dylib' name 'system';
+{$ENDIF}
+
+procedure LaunchRestart;
+{$IF Defined(MSWINDOWS)}
+var
+  Executable: string;
+{$ELSEIF Defined(MACOS)}
+var
+  Executable, Command: string;
+  CommandUtf8: UTF8String;
+{$ENDIF}
+begin
+{$IF Defined(MSWINDOWS)}
+  Executable := ParamStr(0);
+  if ShellExecute(0, 'open', PChar(Executable), nil,
+    PChar(ExtractFilePath(Executable)), SW_SHOWNORMAL) <= 32 then
+    ShowStartupError('MailNotesAgent konnte nicht neu gestartet werden.');
+{$ELSEIF Defined(MACOS)}
+  // Dem beendeten Prozess Zeit geben, bevor die neue Instanz die
+  // Single-Instance-Sperre anfordert. Auch Pfade mit Leerzeichen beachten.
+  Executable := ParamStr(0);
+  Command := '(sleep 2; exec ' + #39 +
+    StringReplace(Executable, #39, #39 + '"' + #39 + '"' + #39, [rfReplaceAll]) +
+    #39 + ') >/dev/null 2>&1 &';
+  CommandUtf8 := UTF8String(Command);
+  if MacSystem(PAnsiChar(CommandUtf8)) <> 0 then
+    ShowStartupError('MailNotesAgent konnte nicht neu gestartet werden.');
+{$ENDIF}
+end;
+
 begin
   Database := nil;
   HttpServer := nil;
   TrayIcon := nil;
   SingleInstance := nil;
+  RestartRequested := False;
+  TMNDiagnostics.Write(1, 'Agent', 'Start');
 
   try
     try
@@ -125,9 +165,11 @@ begin
 {$ENDIF}
       TrayIcon.SetState(tsOK);
       TrayIcon.Run;
+      RestartRequested := TrayIcon.RestartRequested;
     except
       on E: Exception do
       begin
+        TMNDiagnostics.Error('Agent', E.ClassName + ': ' + E.Message);
         ShowStartupError(
           'MailNotes Agent konnte nicht gestartet werden.' +
           sLineBreak + sLineBreak + E.Message
@@ -135,9 +177,13 @@ begin
       end;
     end;
   finally
+    TMNDiagnostics.Write(1, 'Agent', 'Shutdown begin');
     TrayIcon.Free;
     HttpServer.Free;
     Database.Free;
     SingleInstance.Free;
   end;
+
+  if RestartRequested then
+    LaunchRestart;
 end.

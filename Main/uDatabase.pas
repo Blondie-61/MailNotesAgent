@@ -60,6 +60,7 @@ type
     procedure Close;
     function ChangeDatabasePath(const APath: string; out AMode: string): string;
     function CreateBackup(const ADestinationDirectory: string; const ARetentionCount: Integer = 3): string;
+    function RestoreBackup(const ABackupFile: string): string;
 
     procedure Save(Note: TNote);
     procedure RefreshMailIdentity(Note: TNote);
@@ -327,6 +328,78 @@ begin
       );
     end;
   end;
+end;
+
+
+function TDatabase.RestoreBackup(const ABackupFile: string): string;
+var
+  SourceFile, LiveFile, RollbackFile, StagedFile: string;
+  LiveMoved: Boolean;
+begin
+  SourceFile := TPath.GetFullPath(Trim(ABackupFile));
+  LiveFile := TPath.GetFullPath(FConnection.Params.Database);
+  if not FConnection.Connected then
+    raise Exception.Create('Die Datenbank ist nicht geöffnet.');
+  if not TFile.Exists(SourceFile) then
+    raise Exception.Create('Die ausgewählte Sicherung existiert nicht.');
+  if SameText(SourceFile, LiveFile) then
+    raise Exception.Create('Die aktive Datenbank kann nicht als Sicherung ausgewählt werden.');
+
+  // Erst prüfen, dann eine unabhängige Kopie neben der Live-Datenbank anlegen.
+  VerifySQLiteDatabase(SourceFile);
+  RollbackFile := LiveFile + '.rollback-' + FormatDateTime('yyyymmdd-hhnnss-zzz', Now) + '.sqlite';
+  StagedFile := LiveFile + '.restore-staging';
+  if TFile.Exists(StagedFile) then
+    raise Exception.Create('Eine alte Restore-Stagingdatei ist vorhanden: ' + StagedFile);
+  if TFile.Exists(RollbackFile) then
+    raise Exception.Create('Rollback-Dateiname ist bereits vorhanden: ' + RollbackFile);
+
+  // Online-Snapshot erfasst auch noch nicht checkpointete WAL-Transaktionen.
+  CreateSQLiteSnapshot(RollbackFile);
+  try
+    VerifySQLiteDatabase(RollbackFile);
+    TFile.Copy(SourceFile, StagedFile, False);
+    VerifySQLiteDatabase(StagedFile);
+  except
+    if TFile.Exists(StagedFile) then
+      TFile.Delete(StagedFile);
+    raise;
+  end;
+
+  LiveMoved := False;
+  try
+    Close; // SQLite muss WAL/SHM vollständig freigeben.
+    // Original bis zur erfolgreichen Wiedereröffnung unangetastet aufbewahren.
+    TFile.Move(LiveFile, LiveFile + '.restore-original');
+    LiveMoved := True;
+    try
+      TFile.Move(StagedFile, LiveFile);
+      Open;
+      VerifySQLiteDatabase(LiveFile);
+      TFile.Delete(LiveFile + '.restore-original');
+    except
+      on E: Exception do
+      begin
+        Close;
+        if TFile.Exists(LiveFile) then
+          TFile.Delete(LiveFile);
+        if LiveMoved then
+          TFile.Move(LiveFile + '.restore-original', LiveFile);
+        try
+          Open;
+        except
+          on ReopenError: Exception do
+            raise Exception.Create('Restore fehlgeschlagen: ' + E.Message +
+              '. ACHTUNG: Die ursprüngliche Datenbank konnte nicht wieder geöffnet werden: ' + ReopenError.Message);
+        end;
+        raise Exception.Create('Restore fehlgeschlagen; ursprüngliche Datenbank wieder geöffnet: ' + E.Message);
+      end;
+    end;
+  finally
+    if TFile.Exists(StagedFile) then
+      TFile.Delete(StagedFile);
+  end;
+  Result := RollbackFile;
 end;
 
 
@@ -714,7 +787,7 @@ begin
     if not Query.FieldByName('ID').IsNull then
     begin
       Result.ID := Query.FieldByName('ID').AsInteger;
-      Result.Content := Query.FieldByName('Content').AsString;
+      Result.Content := Query.FieldByName('Content').AsWideString;
       Result.Links := Query.FieldByName('Links').AsString;
       Result.CreatedAt := Query.FieldByName('CreatedUTC').AsString;
       Result.ModifiedAt := Query.FieldByName('ModifiedUTC').AsString;
@@ -1026,7 +1099,7 @@ begin
     begin
       Note := TNote.Create;
       Note.ID := Query.FieldByName('ID').AsInteger;
-      Note.Content := Query.FieldByName('Content').AsString;
+      Note.Content := Query.FieldByName('Content').AsWideString;
       Notes.Add(Note);
       Query.Next;
     end;
@@ -1276,7 +1349,7 @@ begin
     begin
       Note := TNote.Create;
       Note.ID := Query.FieldByName('ID').AsInteger;
-      Note.Content := Query.FieldByName('Content').AsString;
+      Note.Content := Query.FieldByName('Content').AsWideString;
       Notes.Add(Note);
       Query.Next;
     end;
@@ -1482,7 +1555,7 @@ begin
       Note.SenderName := Query.FieldByName('SenderName').AsString;
       Note.SenderAddress := Query.FieldByName('SenderAddress').AsString;
       Note.MailDate := Query.FieldByName('ReceivedUTC').AsString;
-      Note.Content := Query.FieldByName('Content').AsString;
+      Note.Content := Query.FieldByName('Content').AsWideString;
       Note.ModifiedAt := Query.FieldByName('ModifiedUTC').AsString;
 
       if SearchExpression <> '' then
@@ -1549,7 +1622,7 @@ begin
       Note.SenderAddress := Query.FieldByName('SenderAddress').AsString;
       Note.MailDate := Query.FieldByName('ReceivedUTC').AsString;
       Note.ModifiedAt := Query.FieldByName('ModifiedUTC').AsString;
-      Snippet := Query.FieldByName('Content').AsString;
+      Snippet := Query.FieldByName('Content').AsWideString;
       Snippet := StringReplace(Snippet, #13, ' ', [rfReplaceAll]);
       Snippet := StringReplace(Snippet, #10, ' ', [rfReplaceAll]);
       Note.SearchSnippet := Trim(Copy(Snippet, 1, 180));
@@ -1740,7 +1813,7 @@ begin
       Note.ModifiedAt := NowUTC;
 
       Query.ParamByName('MailNotesID').AsString := Note.MailNotesID;
-      Query.ParamByName('Content').AsString := Note.Content;
+      Query.ParamByName('Content').AsWideString := Note.Content;
       Query.ParamByName('Links').AsString := Note.Links;
       Query.ParamByName('CreatedUTC').AsString := Note.CreatedAt;
       Query.ParamByName('ModifiedUTC').AsString := Note.ModifiedAt;
@@ -1999,7 +2072,7 @@ begin
       Note.SenderName := Query.FieldByName('SenderName').AsString;
       Note.SenderAddress := Query.FieldByName('SenderAddress').AsString;
       Note.MailDate := Query.FieldByName('ReceivedUTC').AsString;
-      Note.Content := Query.FieldByName('Content').AsString;
+      Note.Content := Query.FieldByName('Content').AsWideString;
       Note.Links := Query.FieldByName('Links').AsString;
       Note.CreatedAt := Query.FieldByName('CreatedUTC').AsString;
       Note.ModifiedAt := Query.FieldByName('ModifiedUTC').AsString;

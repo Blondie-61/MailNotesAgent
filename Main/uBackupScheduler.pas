@@ -47,7 +47,8 @@ uses
   System.IniFiles,
   System.IOUtils,
   System.DateUtils,
-  uAppPaths;
+  uAppPaths,
+  uDiagnostics;
 
 const
   DEFAULT_INTERVALS = '2,4';
@@ -335,12 +336,24 @@ end;
 
 procedure TBackupScheduler.Execute;
 begin
-  while not Terminated do
-  begin
-    TryAutomaticBackup;
-    if FStopEvent.WaitFor(CHECK_INTERVAL_MS) = wrSignaled then
-      Break;
+  TMNDiagnostics.Write(2, 'Backup', 'Scheduler thread started');
+  try
+    while not Terminated do
+    begin
+      TMNDiagnostics.Write(3, 'Backup', 'Scheduler check begin');
+      TryAutomaticBackup;
+      TMNDiagnostics.Write(3, 'Backup', 'Scheduler check end');
+      if FStopEvent.WaitFor(CHECK_INTERVAL_MS) = wrSignaled then
+        Break;
+    end;
+  except
+    on E: Exception do
+    begin
+      TMNDiagnostics.Error('Backup', E.ClassName + ': ' + E.Message);
+      raise;
+    end;
   end;
+  TMNDiagnostics.Write(2, 'Backup', 'Scheduler thread stopped');
 end;
 
 procedure TBackupScheduler.BackupOnExit;

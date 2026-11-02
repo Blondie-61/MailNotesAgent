@@ -7,6 +7,7 @@ uses
   System.Classes,
   System.IOUtils,
   System.NetEncoding,
+  System.JSON,
   System.Generics.Collections,
 
   IdHTTPServer,
@@ -31,7 +32,8 @@ uses
   uAppInfo,
   uRuntimeConfig,
   uGML,
-  uGraphAccounts;
+  uGraphAccounts,
+  uDiagnostics;
 
 type
   THttpServer = class
@@ -109,6 +111,7 @@ type
     procedure Stop;
     function ChangeDatabasePath(const APath: string; out AMode: string): string;
     function CreateDatabaseBackup(const ADestinationDirectory: string; const ARetentionCount: Integer = 0): string;
+    function RestoreDatabaseBackup(const ABackupFile: string): string;
     property Database: TDatabase read FDatabase;
     property OnGraphSignInRequested: TProc read FGraphSignInRequested write FGraphSignInRequested;
   end;
@@ -245,6 +248,16 @@ begin
   end;
 end;
 
+function THttpServer.RestoreDatabaseBackup(const ABackupFile: string): string;
+begin
+  TMonitor.Enter(FDatabaseLock);
+  try
+    Result := FDatabase.RestoreBackup(ABackupFile);
+  finally
+    TMonitor.Exit(FDatabaseLock);
+  end;
+end;
+
 {$IF Defined(MSWINDOWS) or Defined(MACOS)}
 procedure THttpServer.HandleQuerySSLPort(APort: Word; var VUseSSL: Boolean);
 begin
@@ -253,7 +266,18 @@ end;
 {$ENDIF}
 
 procedure THttpServer.HandleCommandGet(AContext: TIdContext; ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+var
+  StartedAt: UInt64;
+  RequestLabel: string;
+  ThreadLabel: string;
 begin
+  StartedAt := TThread.GetTickCount64;
+  // Document enthält nur den URL-Pfad, keine Query-Parameter oder Request-Bodies.
+  RequestLabel := ARequestInfo.Command + ' ' + ARequestInfo.Document;
+  ThreadLabel := IntToStr(TThread.CurrentThread.ThreadID);
+  TMNDiagnostics.Write(2, 'HTTP', 'begin thread=' + ThreadLabel + ' ' + RequestLabel);
+  try
+    try
   ApplyCors(ARequestInfo, AResponseInfo);
 
   if SameText(ARequestInfo.Command, 'OPTIONS') then
@@ -323,8 +347,20 @@ begin
   finally
     TMonitor.Exit(FDatabaseLock);
   end;
+  except
+    on E: Exception do
+    begin
+      TMNDiagnostics.Error('HTTP', 'exception thread=' + ThreadLabel +
+        ' ' + RequestLabel + ' ' + E.ClassName + ': ' + E.Message);
+      raise;
+    end;
+    end;
+  finally
+    TMNDiagnostics.Write(2, 'HTTP', 'end thread=' + ThreadLabel +
+      ' ' + RequestLabel + ' status=' + IntToStr(AResponseInfo.ResponseNo) +
+      ' elapsedMs=' + IntToStr(TThread.GetTickCount64 - StartedAt));
+  end;
 end;
-
 function THttpServer.ContentTypeForFile(const AFileName: string): string;
 var
   Ext: string;
@@ -718,6 +754,9 @@ var
   MailNotesID: string;
   MessageID: string;
   Note: TNote;
+  EncodedContent: string;
+  ParsedContent: TJSONValue;
+
 begin
   MailNotesID := ARequestInfo.Params.Values['mailNotesId'];
   MessageID := ARequestInfo.Params.Values['messageId'];
@@ -753,7 +792,22 @@ begin
     Note.SenderName := ARequestInfo.Params.Values['senderName'];
     Note.SenderAddress := ARequestInfo.Params.Values['senderAddress'];
     Note.MailDate := ARequestInfo.Params.Values['mailDate'];
-    Note.Content := ARequestInfo.Params.Values['content'];
+    // ASCII-only JSON transport prevents a lossy Indy form-parameter decode.
+    // Old Add-ins continue to use the original content parameter.
+    EncodedContent := ARequestInfo.Params.Values['contentJsonAscii'];
+    if EncodedContent <> '' then
+    begin
+      ParsedContent := TJSONObject.ParseJSONValue(EncodedContent);
+      try
+        if not (ParsedContent is TJSONString) then
+          raise EConvertError.Create('Invalid contentJsonAscii');
+        Note.Content := TJSONString(ParsedContent).Value;
+      finally
+        ParsedContent.Free;
+      end;
+    end
+    else
+      Note.Content := ARequestInfo.Params.Values['content'];
     Note.Links := ARequestInfo.Params.Values['links'];
 
     // GML ist optional und kontoabhaengig. Ein Fehlschlag darf das Speichern
