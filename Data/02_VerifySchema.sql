@@ -31,6 +31,7 @@ ORDER BY tbl_name, name;
 -- Tabellenstrukturen
 PRAGMA table_info(Mail);
 PRAGMA table_info(Note);
+PRAGMA table_info(NoteImages);
 PRAGMA table_info(Tag);
 PRAGMA table_info(NoteTag);
 PRAGMA table_info(Person);
@@ -42,6 +43,7 @@ PRAGMA table_info(GraphAccount);
 
 -- Fremdschluesseldefinitionen
 PRAGMA foreign_key_list(Note);
+PRAGMA foreign_key_list(NoteImages);
 PRAGMA foreign_key_list(NoteTag);
 PRAGMA foreign_key_list(NotePerson);
 PRAGMA foreign_key_list(MailLink);

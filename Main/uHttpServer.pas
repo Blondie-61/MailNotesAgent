@@ -8,6 +8,7 @@ uses
   System.IOUtils,
   System.NetEncoding,
   System.JSON,
+  System.RegularExpressions,
   System.Generics.Collections,
 
   IdHTTPServer,
@@ -71,6 +72,8 @@ type
     procedure HandleDatabaseBackup(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleNotFound(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleNote(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+    procedure HandleNoteImage(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+    function NoteImagesJson(const NoteID: Integer): string;
     procedure HandleNoteDelete(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleSave(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleLog(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
@@ -463,6 +466,8 @@ begin
     HandleFavorites(ARequestInfo, AResponseInfo)
   else if SameText(ARequestInfo.Document, '/tags') then
     HandleTags(AResponseInfo)
+  else if SameText(ARequestInfo.Document, '/note/image') then
+    HandleNoteImage(ARequestInfo, AResponseInfo)
   else if SameText(ARequestInfo.Document, '/note/tags') then
     HandleNoteTags(ARequestInfo, AResponseInfo)
   else if SameText(ARequestInfo.Document, '/persons') then
@@ -490,7 +495,7 @@ begin
     '{' +
     '"status":"ok",' +
     '"version":"' + JsonEscape(TAppInfo.Version) + '",' +
-    '"schema":5,' +
+    '"schema":7,' +
     '"identity":"MailNotesID"' +
     '}'
   );
@@ -502,6 +507,8 @@ begin
     AResponseInfo,
     '{' +
     '"name":"MailNotesAgent",' +
+    '"capabilities":{"noteImages":true},' +
+    '"debugEnabled":' + LowerCase(BoolToStr(TMNDiagnostics.DebugEnabled, True)) + ',' +
     '"version":"' + JsonEscape(TAppInfo.Version) + '",' +
     '"platform":"' + JsonEscape(TAppInfo.PlatformName) + '",' +
     '"port":' + TRuntimeConfig.HttpPort.ToString + ',' +
@@ -623,6 +630,44 @@ begin
   SendJson(AResponseInfo, '{"error":"not_found"}', 404);
 end;
 
+function THttpServer.NoteImagesJson(const NoteID: Integer): string;
+var
+  Images: TJSONArray;
+begin
+  Images := TJSONArray.Create;
+  try
+    for var Image in FDatabase.GetNoteImages(NoteID) do
+      Images.AddElement(TJSONObject.Create
+        .AddPair('imageId', Image.ImageID)
+        .AddPair('mediaType', Image.MediaType));
+    Result := Images.ToJSON;
+  finally
+    Images.Free;
+  end;
+end;
+
+procedure THttpServer.HandleNoteImage(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+var
+  Image: TNoteImage;
+  MailNotesID, ImageID: string;
+begin
+  MailNotesID := ARequestInfo.Params.Values['mailNotesId'];
+  ImageID := ARequestInfo.Params.Values['imageId'];
+  if (MailNotesID = '') or (ImageID = '') then
+    SendJson(AResponseInfo, '{"error":"missing_image_identity"}', 400)
+  else if not FDatabase.GetNoteImage(MailNotesID, ImageID, Image) then
+    SendJson(AResponseInfo, '{"error":"image_not_found"}', 404)
+  else
+  begin
+    AResponseInfo.ResponseNo := 200;
+    AResponseInfo.ContentType := Image.MediaType;
+    AResponseInfo.CustomHeaders.Values['Cache-Control'] := 'no-store';
+    AResponseInfo.CustomHeaders.Values['X-Content-Type-Options'] := 'nosniff';
+    AResponseInfo.ContentStream := TBytesStream.Create(Image.Data);
+    AResponseInfo.FreeContentStream := True;
+  end;
+end;
+
 procedure THttpServer.HandleNote(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 var
   MailNotesID: string;
@@ -650,7 +695,7 @@ begin
   try
     if not Assigned(Note) then
     begin
-      SendJson(AResponseInfo, '{"found":false}');
+      SendJson(AResponseInfo, '{"found":false,"revision":0}');
       Exit;
     end;
 
@@ -695,7 +740,7 @@ begin
       SendJson(
         AResponseInfo,
         '{' +
-        '"found":false,' +
+        '"found":false,"revision":0,' +
         '"mailNotesId":"' + JsonEscape(Note.MailNotesID) + '",' +
         '"gmlActive":' + LowerCase(BoolToStr(GMLActive, True)) +
         '}'
@@ -707,6 +752,8 @@ begin
       AResponseInfo,
       '{' +
       '"found":true,' +
+      '"revision":' + Note.Revision.ToString + ',' +
+      '"images":' + NoteImagesJson(Note.ID) + ',' +
       '"mailNotesId":"' + JsonEscape(Note.MailNotesID) + '",' +
       '"gmlActive":' + LowerCase(BoolToStr(GMLActive, True)) + ',' +
       '"content":"' + JsonEscape(Note.Content) + '",' +
@@ -750,104 +797,193 @@ begin
 end;
 
 procedure THttpServer.HandleSave(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+const
+  MaxJsonBytes = 24 * 1024 * 1024;
 var
   MailNotesID: string;
   MessageID: string;
   Note: TNote;
   EncodedContent: string;
-  ParsedContent: TJSONValue;
+  ParsedContent, RequestJson, Value: TJSONValue;
+  RequestObject, Upload: TJSONObject;
+  Body: TBytes;
+  Uploads: TArray<TNoteImage>;
+  ExpectedRevision: Int64;
+  Index: Integer;
+
+  function ReadString(const Name: string): string;
+  var
+    Field: TJSONValue;
+  begin
+    if RequestObject = nil then
+      Exit(ARequestInfo.Params.Values[Name]);
+    Field := RequestObject.GetValue(Name);
+    if Field = nil then
+      Exit('');
+    if not (Field is TJSONString) then
+      raise EInvalidNoteImage.Create('invalid_' + Name);
+    Result := Field.Value;
+  end;
 
 begin
-  MailNotesID := ARequestInfo.Params.Values['mailNotesId'];
-  MessageID := ARequestInfo.Params.Values['messageId'];
-
-  if (MailNotesID = '') and (MessageID = '') then
-  begin
-    SendJson(AResponseInfo, '{"error":"missing_mail_identity"}', 400);
-    Exit;
-  end;
-
-  if MailNotesID <> '' then
-    Note := FDatabase.FindByMailNotesID(MailNotesID)
-  else
-    Note := FDatabase.FindByMessageID(MessageID);
-
-  if not Assigned(Note) then
-  begin
-    Note := TNote.Create(MessageID);
-    Note.MailNotesID := MailNotesID;
-  end;
-
+  RequestJson := nil;
+  RequestObject := nil;
+  ExpectedRevision := -1;
   try
-    if MailNotesID <> '' then
-      Note.MailNotesID := MailNotesID;
-    if MessageID <> '' then
-      Note.MessageID := MessageID;
-
-    Note.ConversationID := ARequestInfo.Params.Values['conversationId'];
-    Note.ItemID := ARequestInfo.Params.Values['itemId'];
-    Note.ImmutableID := ARequestInfo.Params.Values['immutableId'];
-    Note.MailboxAddress := ARequestInfo.Params.Values['mailboxAddress'];
-    Note.Subject := ARequestInfo.Params.Values['subject'];
-    Note.SenderName := ARequestInfo.Params.Values['senderName'];
-    Note.SenderAddress := ARequestInfo.Params.Values['senderAddress'];
-    Note.MailDate := ARequestInfo.Params.Values['mailDate'];
-    // ASCII-only JSON transport prevents a lossy Indy form-parameter decode.
-    // Old Add-ins continue to use the original content parameter.
-    EncodedContent := ARequestInfo.Params.Values['contentJsonAscii'];
-    if EncodedContent <> '' then
-    begin
-      ParsedContent := TJSONObject.ParseJSONValue(EncodedContent);
-      try
-        if not (ParsedContent is TJSONString) then
-          raise EConvertError.Create('Invalid contentJsonAscii');
-        Note.Content := TJSONString(ParsedContent).Value;
-      finally
-        ParsedContent.Free;
+    try
+      if SameText(Trim(ARequestInfo.ContentType.Split([';'])[0]), 'application/json') then
+      begin
+        if ARequestInfo.PostStream = nil then
+          raise EInvalidNoteImage.Create('missing_json_body');
+        if ARequestInfo.PostStream.Size > MaxJsonBytes then
+          raise ENoteImageTooLarge.Create('request_too_large');
+        ARequestInfo.PostStream.Position := 0;
+        SetLength(Body, ARequestInfo.PostStream.Size);
+        ARequestInfo.PostStream.ReadBuffer(Body, Length(Body));
+        RequestJson := TJSONObject.ParseJSONValue(TEncoding.UTF8.GetString(Body));
+        if not (RequestJson is TJSONObject) then
+          raise EInvalidNoteImage.Create('invalid_json_body');
+        RequestObject := TJSONObject(RequestJson);
+        Value := RequestObject.GetValue('expectedRevision');
+        if not (Value is TJSONNumber) or
+           not TryStrToInt64(Value.Value, ExpectedRevision) or (ExpectedRevision < 0) then
+          raise EInvalidNoteImage.Create('invalid_expected_revision');
+        if not (RequestObject.GetValue('content') is TJSONString) then
+          raise EInvalidNoteImage.Create('invalid_content');
+        Value := RequestObject.GetValue('imageUploads');
+        if Assigned(Value) then
+        begin
+          if not (Value is TJSONArray) then
+            raise EInvalidNoteImage.Create('invalid_image_uploads');
+          SetLength(Uploads, TJSONArray(Value).Count);
+          for Index := 0 to High(Uploads) do
+          begin
+            if not (TJSONArray(Value).Items[Index] is TJSONObject) then
+              raise EInvalidNoteImage.Create('invalid_image_upload');
+            Upload := TJSONObject(TJSONArray(Value).Items[Index]);
+            if not (Upload.GetValue('imageId') is TJSONString) or
+               not (Upload.GetValue('mediaType') is TJSONString) or
+               not (Upload.GetValue('dataBase64') is TJSONString) then
+              raise EInvalidNoteImage.Create('invalid_image_upload');
+            Uploads[Index].ImageID := Upload.GetValue('imageId').Value;
+            Uploads[Index].MediaType := Upload.GetValue('mediaType').Value;
+            var Base64 := Upload.GetValue('dataBase64').Value;
+            if (Length(Base64) mod 4 <> 0) or not TRegEx.IsMatch(Base64, '\A[A-Za-z0-9+/]*={0,2}\z') then
+              raise EInvalidNoteImage.Create('invalid_image_base64');
+            Uploads[Index].Data := TNetEncoding.Base64.DecodeStringToBytes(Base64);
+          end;
+        end;
       end;
-    end
-    else
-      Note.Content := ARequestInfo.Params.Values['content'];
-    Note.Links := ARequestInfo.Params.Values['links'];
 
-    // GML ist optional und kontoabhaengig. Ein Fehlschlag darf das Speichern
-    // und den vorhandenen SRL-Weg niemals blockieren.
-    var GMLError: string;
-    if (Note.ImmutableID = '') and (Note.ItemID <> '') and
-       (Note.MailboxAddress <> '') then
-    begin
-      if TGML.TryEnrichMailIdentity(FDatabase, Note, GMLError) then
-        LogToFile(
-          'Agent',
-          'GML enriched',
-          'mailNotesId=' + Note.MailNotesID +
-          ' mailbox=' + Note.MailboxAddress
-        )
+      MailNotesID := ReadString('mailNotesId');
+      MessageID := ReadString('messageId');
+
+      if (MailNotesID = '') and (MessageID = '') then
+      begin
+        SendJson(AResponseInfo, '{"error":"missing_mail_identity"}', 400);
+        Exit;
+      end;
+
+      if MailNotesID <> '' then
+        Note := FDatabase.FindByMailNotesID(MailNotesID)
       else
-        LogToFile(
-          'Agent',
-          'GML enrichment skipped',
-          'mailNotesId=' + Note.MailNotesID +
-          ' mailbox=' + Note.MailboxAddress +
-          ' reason=' + GMLError
+        Note := FDatabase.FindByMessageID(MessageID);
+
+      if not Assigned(Note) then
+      begin
+        Note := TNote.Create(MessageID);
+        Note.MailNotesID := MailNotesID;
+      end;
+
+      try
+        if MailNotesID <> '' then
+          Note.MailNotesID := MailNotesID;
+        if MessageID <> '' then
+          Note.MessageID := MessageID;
+
+        Note.ConversationID := ReadString('conversationId');
+        Note.ItemID := ReadString('itemId');
+        Note.ImmutableID := ReadString('immutableId');
+        Note.MailboxAddress := ReadString('mailboxAddress');
+        Note.Subject := ReadString('subject');
+        Note.SenderName := ReadString('senderName');
+        Note.SenderAddress := ReadString('senderAddress');
+        Note.MailDate := ReadString('mailDate');
+        // ASCII-only JSON transport prevents a lossy Indy form-parameter decode.
+        // Old Add-ins continue to use the original content parameter.
+        EncodedContent := '';
+        if RequestObject = nil then
+          EncodedContent := ReadString('contentJsonAscii');
+        if EncodedContent <> '' then
+        begin
+          ParsedContent := TJSONObject.ParseJSONValue(EncodedContent);
+          try
+            if not (ParsedContent is TJSONString) then
+              raise EConvertError.Create('Invalid contentJsonAscii');
+            Note.Content := TJSONString(ParsedContent).Value;
+          finally
+            ParsedContent.Free;
+          end;
+        end
+        else
+          Note.Content := ReadString('content');
+        if (RequestObject = nil) or (RequestObject.GetValue('links') <> nil) then
+          Note.Links := ReadString('links');
+
+        // GML ist optional und kontoabhaengig. Ein Fehlschlag darf das Speichern
+        // und den vorhandenen SRL-Weg niemals blockieren.
+        var GMLError: string;
+        if (Note.ImmutableID = '') and (Note.ItemID <> '') and
+           (Note.MailboxAddress <> '') then
+        begin
+          if TGML.TryEnrichMailIdentity(FDatabase, Note, GMLError) then
+            LogToFile(
+              'Agent',
+              'GML enriched',
+              'mailNotesId=' + Note.MailNotesID +
+              ' mailbox=' + Note.MailboxAddress
+            )
+          else
+            LogToFile(
+              'Agent',
+              'GML enrichment skipped',
+              'mailNotesId=' + Note.MailNotesID +
+              ' mailbox=' + Note.MailboxAddress +
+              ' reason=' + GMLError
+            );
+        end;
+
+        FDatabase.Save(Note, ExpectedRevision, Uploads);
+
+        SendJson(
+          AResponseInfo,
+          '{' +
+          '"saved":true,' +
+          '"revision":' + Note.Revision.ToString + ',' +
+          '"id":' + Note.ID.ToString + ',' +
+          '"mailNotesId":"' + JsonEscape(Note.MailNotesID) + '",' +
+          '"gmlActive":' + LowerCase(BoolToStr(
+            (Note.ImmutableID <> '') and
+            FDatabase.IsGraphAvailable(Note.MailboxAddress), True)) +
+          '}'
         );
+      finally
+        Note.Free;
+      end;
+    except
+      on E: ENoteImageConflict do
+        SendJson(AResponseInfo, '{"error":"' + JsonEscape(E.Message) + '"}', 409);
+      on E: ENoteImageTooLarge do
+        SendJson(AResponseInfo, '{"error":"' + JsonEscape(E.Message) + '"}', 413);
+      on E: EUnsupportedNoteImage do
+        SendJson(AResponseInfo, '{"error":"' + JsonEscape(E.Message) + '"}', 415);
+      on E: EInvalidNoteImage do
+        SendJson(AResponseInfo, '{"error":"' + JsonEscape(E.Message) + '"}', 400);
+      on E: EConvertError do
+        SendJson(AResponseInfo, '{"error":"invalid_note_payload"}', 400);
     end;
-
-    FDatabase.Save(Note);
-
-    SendJson(
-      AResponseInfo,
-      '{' +
-      '"saved":true,' +
-      '"id":' + Note.ID.ToString + ',' +
-      '"mailNotesId":"' + JsonEscape(Note.MailNotesID) + '",' +
-      '"gmlActive":' + LowerCase(BoolToStr(
-        (Note.ImmutableID <> '') and
-        FDatabase.IsGraphAvailable(Note.MailboxAddress), True)) +
-      '}'
-    );
   finally
-    Note.Free;
+    RequestJson.Free;
   end;
 end;
 

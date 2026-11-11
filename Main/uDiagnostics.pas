@@ -7,7 +7,10 @@ uses
 
 type
   TMNDiagnostics = class sealed
+  private
+    class procedure ReadSettings(out Enabled: Boolean; out Level: Integer); static;
   public
+    class function DebugEnabled: Boolean; static;
     class procedure Write(const ALevel: Integer; const ASource, AText: string); static;
     class procedure Error(const ASource, AText: string); static;
   end;
@@ -21,26 +24,44 @@ uses
 var
   GLogLock: TObject;
 
-class procedure TMNDiagnostics.Write(const ALevel: Integer; const ASource, AText: string);
+class procedure TMNDiagnostics.ReadSettings(out Enabled: Boolean; out Level: Integer);
 var
   Ini: TIniFile;
-  Enabled, Level: Integer;
+begin
+  Enabled := False;
+  Level := 1;
+  if TFile.Exists(TAppPaths.ConfigFile) then
+  begin
+    Ini := TIniFile.Create(TAppPaths.ConfigFile);
+    try
+      Enabled := Ini.ReadInteger('Debug', 'Enabled', 0) = 1;
+      Level := Ini.ReadInteger('Debug', 'LogLevel', 1);
+    finally
+      Ini.Free;
+    end;
+  end;
+end;
+
+class function TMNDiagnostics.DebugEnabled: Boolean;
+var
+  Level: Integer;
+begin
+  try
+    ReadSettings(Result, Level);
+  except
+    Result := False;
+  end;
+end;
+
+class procedure TMNDiagnostics.Write(const ALevel: Integer; const ASource, AText: string);
+var
+  Enabled: Boolean;
+  Level: Integer;
   LogDir, LogName, Line: string;
 begin
   try
-    Enabled := 0;
-    Level := 1;
-    if TFile.Exists(TAppPaths.ConfigFile) then
-    begin
-      Ini := TIniFile.Create(TAppPaths.ConfigFile);
-      try
-        Enabled := Ini.ReadInteger('Debug', 'Enabled', 0);
-        Level := Ini.ReadInteger('Debug', 'LogLevel', 1);
-      finally
-        Ini.Free;
-      end;
-    end;
-    if (ALevel > 0) and ((Enabled <> 1) or (ALevel > Level)) then
+    ReadSettings(Enabled, Level);
+    if (ALevel > 0) and (not Enabled or (ALevel > Level)) then
       Exit;
     LogDir := TPath.Combine(TAppPaths.DataDirectory, 'Logs');
     LogName := TPath.Combine(LogDir, 'MailNotesAgent-Diagnostic.log');

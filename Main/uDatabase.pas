@@ -11,10 +11,14 @@ uses
   System.Generics.Collections,
   System.Character,
   System.Variants,
+  System.RegularExpressions,
+
+  Data.DB,
 
   FireDAC.UI.Intf,
 {$IF Defined(MSWINDOWS)}
   FireDAC.VCLUI.Wait,
+  FireDAC.Comp.UI,
 {$ELSE}
   FireDAC.ConsoleUI.Wait,
 {$ENDIF}
@@ -37,6 +41,17 @@ uses
   uAppPaths;
 
 type
+  ENoteImageConflict = class(Exception);
+  EInvalidNoteImage = class(Exception);
+  ENoteImageTooLarge = class(EInvalidNoteImage);
+  EUnsupportedNoteImage = class(EInvalidNoteImage);
+
+  TNoteImage = record
+    ImageID: string;
+    MediaType: string;
+    Data: TBytes;
+  end;
+
   TTagInfo = class
   public
     Name: string;
@@ -62,7 +77,12 @@ type
     function CreateBackup(const ADestinationDirectory: string; const ARetentionCount: Integer = 3): string;
     function RestoreBackup(const ABackupFile: string): string;
 
-    procedure Save(Note: TNote);
+    procedure Save(Note: TNote); overload;
+    procedure Save(Note: TNote; const ExpectedRevision: Int64;
+      const Uploads: TArray<TNoteImage>); overload;
+    function GetNoteImage(const MailNotesID, ImageID: string;
+      out Image: TNoteImage): Boolean;
+    function GetNoteImages(const NoteID: Integer): TArray<TNoteImage>;
     procedure RefreshMailIdentity(Note: TNote);
 
     function FindByMessageID(const MessageID: string): TNote;
@@ -137,6 +157,8 @@ type
     function CreateMailNotesID: string;
 
     procedure EnsureSchema;
+    procedure SyncNoteImages(Note: TNote; const LegacySave: Boolean;
+      const Uploads: TArray<TNoteImage>);
 
     procedure EnsureMailForNote(Note: TNote);
     procedure EnsureMailForBuffer(LinkBuffer: TLinkBuffer);
@@ -178,11 +200,19 @@ type
 
 implementation
 
+const
+  NoteImageUUID = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
+  NoteImagePattern = '!\[(?:\\.|[^\]\\\r\n])*\]\(mailnotes-image:([^\r\n)]*)\)';
+
 constructor TDatabase.Create;
 begin
   inherited Create;
   FSQLiteDriverLink := TFDPhysSQLiteDriverLink.Create(nil);
   FConnection := TFDConnection.Create(nil);
+{$IF Defined(MSWINDOWS)}
+  // SQLite backup services require an explicitly selected wait provider.
+  TFDGUIxWaitCursor.Create(FConnection).Provider := 'Forms';
+{$ENDIF}
 end;
 
 destructor TDatabase.Destroy;
@@ -693,6 +723,27 @@ begin
     'UPDATE SchemaInfo SET SchemaVersion = 6 ' +
     'WHERE SchemaVersion < 6'
   );
+
+  if FConnection.ExecSQLScalar('SELECT SchemaVersion FROM SchemaInfo') = 6 then
+  begin
+    FConnection.StartTransaction;
+    try
+      FConnection.ExecSQL('ALTER TABLE Note ADD COLUMN Revision INTEGER NOT NULL DEFAULT 1');
+      FConnection.ExecSQL(
+        'CREATE TABLE NoteImages (' +
+        'NoteID INTEGER NOT NULL, ImageID TEXT NOT NULL, ' +
+        'MediaType TEXT NOT NULL CHECK (MediaType IN (''image/png'', ''image/jpeg'')), ' +
+        'ImageData BLOB NOT NULL CHECK (typeof(ImageData) = ''blob'' AND length(ImageData) > 0), ' +
+        'CreatedUTC TEXT NOT NULL, PRIMARY KEY (NoteID, ImageID), ' +
+        'FOREIGN KEY (NoteID) REFERENCES Note(ID) ON DELETE CASCADE)'
+      );
+      FConnection.ExecSQL('UPDATE SchemaInfo SET SchemaVersion = 7 WHERE SchemaVersion = 6');
+      FConnection.Commit;
+    except
+      FConnection.Rollback;
+      raise;
+    end;
+  end;
 end;
 
 procedure TDatabase.Close;
@@ -756,7 +807,7 @@ begin
       'SELECT ' +
       '  N.ID, M.MailNotesID, N.Content, N.Links, ' +
       '  N.CreatedUTC, N.ModifiedUTC, N.IsFavorite, ' +
-      '  N.IsDeleted, N.DeletedUTC, ' +
+      '  N.IsDeleted, N.DeletedUTC, N.Revision, ' +
       '  M.ItemID, M.ImmutableID, M.InternetMessageID, ' +
       '  M.ConversationID, M.MailboxAddress, M.Subject, ' +
       '  M.SenderName, M.SenderAddress, M.ReceivedUTC ' +
@@ -787,6 +838,7 @@ begin
     if not Query.FieldByName('ID').IsNull then
     begin
       Result.ID := Query.FieldByName('ID').AsInteger;
+      Result.Revision := Query.FieldByName('Revision').AsLargeInt;
       Result.Content := Query.FieldByName('Content').AsWideString;
       Result.Links := Query.FieldByName('Links').AsString;
       Result.CreatedAt := Query.FieldByName('CreatedUTC').AsString;
@@ -1709,7 +1761,7 @@ begin
       NowUTC := GetCurrentUTC;
       Query.SQL.Text :=
         'UPDATE Note SET IsDeleted = 1, DeletedUTC = :DeletedUTC, ' +
-        'IsFavorite = 0, ModifiedUTC = :ModifiedUTC ' +
+        'IsFavorite = 0, ModifiedUTC = :ModifiedUTC, Revision = Revision + 1 ' +
         'WHERE ID = :NoteID AND IsDeleted = 0';
       Query.ParamByName('DeletedUTC').AsString := NowUTC;
       Query.ParamByName('ModifiedUTC').AsString := NowUTC;
@@ -1742,6 +1794,19 @@ begin
           'DELETE FROM SHLRepairQueue WHERE MailNotesID = :MailNotesID';
         Query.ParamByName('MailNotesID').AsString := EffectiveMailNotesID;
         Query.ExecSQL;
+
+        // Remove image references together with their BLOBs.
+        Query.Close;
+        Query.SQL.Text := 'SELECT Content FROM Note WHERE ID = :NoteID';
+        Query.ParamByName('NoteID').AsInteger := NoteID;
+        Query.Open;
+        var Content := Query.FieldByName('Content').AsWideString;
+        Query.Close;
+        Query.SQL.Text := 'UPDATE Note SET Content = :Content WHERE ID = :NoteID';
+        Query.ParamByName('Content').AsWideString := TRegEx.Replace(Content, NoteImagePattern, '');
+        Query.ParamByName('NoteID').AsInteger := NoteID;
+        Query.ExecSQL;
+        FConnection.ExecSQL('DELETE FROM NoteImages WHERE NoteID = :NoteID', [NoteID]);
 
         DeleteUnusedTags;
         DeleteUnusedPersons;
@@ -1778,7 +1843,161 @@ begin
   end;
 end;
 
+function TDatabase.GetNoteImages(const NoteID: Integer): TArray<TNoteImage>;
+var
+  Query: TFDQuery;
+  Images: TList<TNoteImage>;
+  Image: TNoteImage;
+begin
+  Query := TFDQuery.Create(nil);
+  Images := TList<TNoteImage>.Create;
+  try
+    Query.Connection := FConnection;
+    Query.SQL.Text := 'SELECT ImageID, MediaType FROM NoteImages WHERE NoteID = :ID ORDER BY ImageID';
+    Query.ParamByName('ID').AsInteger := NoteID;
+    Query.Open;
+    while not Query.Eof do
+    begin
+      Image.ImageID := Query.Fields[0].AsString;
+      Image.MediaType := Query.Fields[1].AsString;
+      Images.Add(Image);
+      Query.Next;
+    end;
+    Result := Images.ToArray;
+  finally
+    Images.Free;
+    Query.Free;
+  end;
+end;
+
+function TDatabase.GetNoteImage(const MailNotesID, ImageID: string;
+  out Image: TNoteImage): Boolean;
+var
+  Query: TFDQuery;
+begin
+  Query := TFDQuery.Create(nil);
+  try
+    Query.Connection := FConnection;
+    Query.SQL.Text :=
+      'SELECT I.MediaType, I.ImageData FROM NoteImages I JOIN Note N ON N.ID = I.NoteID ' +
+      'WHERE N.MailNotesID = :NoteID AND N.IsDeleted = 0 AND I.ImageID = :ImageID';
+    Query.ParamByName('NoteID').AsString := MailNotesID;
+    Query.ParamByName('ImageID').AsString := LowerCase(ImageID);
+    Query.Open;
+    Result := not Query.Eof;
+    if Result then
+    begin
+      Image.ImageID := LowerCase(ImageID);
+      Image.MediaType := Query.Fields[0].AsString;
+      Image.Data := Query.Fields[1].AsBytes;
+    end;
+  finally
+    Query.Free;
+  end;
+end;
+
+procedure TDatabase.SyncNoteImages(Note: TNote; const LegacySave: Boolean;
+  const Uploads: TArray<TNoteImage>);
+const
+  MaxImageBytes = 5 * 1024 * 1024;
+  PngSignature: array[0..7] of Byte = ($89, $50, $4E, $47, $0D, $0A, $1A, $0A);
+var
+  References, Available: TDictionary<string, Byte>;
+  Existing: TArray<TNoteImage>;
+  Image: TNoteImage;
+  ImageID: string;
+  Query: TFDQuery;
+begin
+  References := TDictionary<string, Byte>.Create;
+  Available := TDictionary<string, Byte>.Create;
+  Query := TFDQuery.Create(nil);
+  try
+    for var Match in TRegEx.Matches(Note.Content, NoteImagePattern) do
+    begin
+      ImageID := LowerCase(Match.Groups[1].Value);
+      if not TRegEx.IsMatch(ImageID, '^' + NoteImageUUID + '$') then
+        raise EInvalidNoteImage.Create('invalid_image_reference');
+      References.AddOrSetValue(ImageID, 0);
+    end;
+
+    Existing := GetNoteImages(Note.ID);
+    for Image in Existing do
+      Available.Add(Image.ImageID, 0);
+
+    if LegacySave then
+    begin
+      if References.Count <> Available.Count then
+        raise ENoteImageConflict.Create('image_references_changed');
+      for ImageID in References.Keys do
+        if not Available.ContainsKey(ImageID) then
+          raise ENoteImageConflict.Create('image_references_changed');
+      Exit;
+    end;
+
+    Query.Connection := FConnection;
+    Query.SQL.Text :=
+      'INSERT INTO NoteImages (NoteID, ImageID, MediaType, ImageData, CreatedUTC) ' +
+      'VALUES (:NoteID, :ImageID, :MediaType, :ImageData, :CreatedUTC)';
+    for Image in Uploads do
+    begin
+      ImageID := LowerCase(Image.ImageID);
+      if not References.ContainsKey(ImageID) or Available.ContainsKey(ImageID) then
+        raise EInvalidNoteImage.Create('unexpected_image_upload');
+      if Length(Image.Data) > MaxImageBytes then
+        raise ENoteImageTooLarge.Create('image_too_large');
+
+      if Image.MediaType = 'image/png' then
+      begin
+        if (Length(Image.Data) <= Length(PngSignature)) or
+           not CompareMem(@Image.Data[0], @PngSignature[0], Length(PngSignature)) then
+          raise EInvalidNoteImage.Create('invalid_png');
+      end
+      else if Image.MediaType = 'image/jpeg' then
+      begin
+        if (Length(Image.Data) < 5) or (Image.Data[0] <> $FF) or
+           (Image.Data[1] <> $D8) or (Image.Data[2] <> $FF) or
+           (Image.Data[High(Image.Data) - 1] <> $FF) or (Image.Data[High(Image.Data)] <> $D9) then
+          raise EInvalidNoteImage.Create('invalid_jpeg');
+      end
+      else
+        raise EUnsupportedNoteImage.Create('unsupported_image_format');
+
+      Query.ParamByName('NoteID').AsInteger := Note.ID;
+      Query.ParamByName('ImageID').AsString := ImageID;
+      Query.ParamByName('MediaType').AsString := Image.MediaType;
+      var ImageStream := TBytesStream.Create(Image.Data);
+      try
+        Query.ParamByName('ImageData').LoadFromStream(ImageStream, ftBlob);
+      finally
+        ImageStream.Free;
+      end;
+      Query.ParamByName('CreatedUTC').AsString := Note.ModifiedAt;
+      Query.ExecSQL;
+      Available.Add(ImageID, 0);
+    end;
+
+    for ImageID in References.Keys do
+      if not Available.ContainsKey(ImageID) then
+        raise EInvalidNoteImage.Create('missing_image');
+
+    for Image in Existing do
+      if not References.ContainsKey(Image.ImageID) then
+        FConnection.ExecSQL('DELETE FROM NoteImages WHERE NoteID = :ID AND ImageID = :ImageID',
+          [Note.ID, Image.ImageID]);
+  finally
+    Query.Free;
+    Available.Free;
+    References.Free;
+  end;
+end;
+
 procedure TDatabase.Save(Note: TNote);
+begin
+  Save(Note, -1, nil);
+end;
+
+procedure TDatabase.Save(Note: TNote; const ExpectedRevision: Int64;
+  const Uploads: TArray<TNoteImage>);
 var
   Query: TFDQuery;
   NowUTC: string;
@@ -1791,6 +2010,16 @@ begin
 
   try
     EnsureMailForNote(Note);
+    if ExpectedRevision >= 0 then
+    begin
+      // A tombstone is absent for an intentional new save, but never matches
+      // an in-flight save that was based on its previous active revision.
+      var CurrentRevision := FConnection.ExecSQLScalar(
+        'SELECT COALESCE((SELECT Revision FROM Note WHERE MailNotesID = :ID AND IsDeleted = 0), 0)',
+        [Note.MailNotesID]);
+      if CurrentRevision <> ExpectedRevision then
+        raise ENoteImageConflict.Create('revision_conflict');
+    end;
     NowUTC := GetCurrentUTC;
 
     Query := TFDQuery.Create(nil);
@@ -1806,7 +2035,7 @@ begin
         ' Links = excluded.Links, ' +
         ' ModifiedUTC = excluded.ModifiedUTC, ' +
         ' IsFavorite = excluded.IsFavorite, ' +
-        ' IsDeleted = 0, DeletedUTC = NULL';
+        ' IsDeleted = 0, DeletedUTC = NULL, Revision = Note.Revision + 1';
 
       if Note.CreatedAt = '' then
         Note.CreatedAt := NowUTC;
@@ -1820,20 +2049,19 @@ begin
       Query.ParamByName('IsFavorite').AsInteger := Ord(Note.IsFavorite);
       Query.ExecSQL;
 
-      if Note.ID = 0 then
-      begin
-        Query.Close;
-        Query.SQL.Text :=
-          'SELECT ID, CreatedUTC FROM Note WHERE MailNotesID = :MailNotesID';
-        Query.ParamByName('MailNotesID').AsString := Note.MailNotesID;
-        Query.Open;
-        Note.ID := Query.FieldByName('ID').AsInteger;
-        Note.CreatedAt := Query.FieldByName('CreatedUTC').AsString;
-      end;
+      Query.Close;
+      Query.SQL.Text :=
+        'SELECT ID, CreatedUTC, Revision FROM Note WHERE MailNotesID = :MailNotesID';
+      Query.ParamByName('MailNotesID').AsString := Note.MailNotesID;
+      Query.Open;
+      Note.ID := Query.FieldByName('ID').AsInteger;
+      Note.CreatedAt := Query.FieldByName('CreatedUTC').AsString;
+      Note.Revision := Query.FieldByName('Revision').AsLargeInt;
     finally
       Query.Free;
     end;
 
+    SyncNoteImages(Note, ExpectedRevision < 0, Uploads);
     SyncNoteTags(Note.ID, Note.Content);
     SyncNotePersons(Note.ID, Note.Content);
     UpdateMailLinks(Note.MailNotesID, Note.Links);

@@ -6,6 +6,7 @@ type
   TNote = class
   public
     ID: Integer;
+    Revision: Int64;
     MailNotesID: string;
 
     ItemID: string;
