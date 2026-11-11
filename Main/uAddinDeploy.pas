@@ -5,7 +5,8 @@ interface
 type
   TAddinDeploy = class sealed
   public
-    class procedure ValidatePackage(const DirectoryName: string); static;
+    class procedure ValidatePackage(const DirectoryName: string;
+      const AllowExtraFiles: Boolean = False); static;
     class procedure EnsureInstalled; static;
   end;
 
@@ -15,7 +16,8 @@ uses
   System.SysUtils, System.IOUtils, System.JSON, System.Hash,
   System.Generics.Collections, uAppPaths;
 
-class procedure TAddinDeploy.ValidatePackage(const DirectoryName: string);
+class procedure TAddinDeploy.ValidatePackage(const DirectoryName: string;
+  const AllowExtraFiles: Boolean);
 var
   Manifest: TJSONValue;
   Entries: TJSONArray;
@@ -51,7 +53,8 @@ begin
       'polyfill.js', 'manifest.xml') do
       if not Names.ContainsKey(Name) then
         raise Exception.Create('Add-in-Build ist unvollstaendig: ' + Name);
-    if Length(TDirectory.GetFiles(DirectoryName, '*', TSearchOption.soAllDirectories)) <> Names.Count + 1 then
+    if not AllowExtraFiles and
+       (Length(TDirectory.GetFiles(DirectoryName, '*', TSearchOption.soAllDirectories)) <> Names.Count + 1) then
       raise Exception.Create('Unerwartete Dateien im Add-in-Build.');
   finally
     Names.Free;
@@ -80,6 +83,8 @@ var
   FileName, RelativeName, DestinationName: string;
   I: Integer;
   Changed: Boolean;
+  Manifest: TJSONValue;
+  Entries: TJSONArray;
 {$ENDIF}
 begin
 {$IF Defined(MACOS)}
@@ -93,9 +98,21 @@ begin
     Writeln('Vorhandene Add-in-Dateien bleiben unveraendert.');
     Exit;
   end;
-  ValidatePackage(SourceDir);
-
-  SourceFiles := TDirectory.GetFiles(SourceDir, '*', TSearchOption.soAllDirectories);
+  // PAServer behaelt Dateien voriger Deployments. Nur die manifestierten
+  // und zuvor per SHA-256 geprueften Dateien gehoeren zum aktuellen Paket.
+  ValidatePackage(SourceDir, True);
+  Manifest := TJSONObject.ParseJSONValue(
+    TFile.ReadAllText(TPath.Combine(SourceDir, 'addin-build.json'), TEncoding.UTF8));
+  try
+    Entries := Manifest.GetValue<TJSONArray>('files');
+    SetLength(SourceFiles, Entries.Count + 1);
+    SourceFiles[0] := TPath.Combine(SourceDir, 'addin-build.json');
+    for I := 0 to Entries.Count - 1 do
+      SourceFiles[I + 1] := TPath.Combine(SourceDir,
+        Entries.Items[I].GetValue<string>('path').Replace('/', PathDelim));
+  finally
+    Manifest.Free;
+  end;
   Changed := not TDirectory.Exists(TargetDir);
   if not Changed then
     Changed := Length(TDirectory.GetFiles(TargetDir, '*', TSearchOption.soAllDirectories)) <> Length(SourceFiles);

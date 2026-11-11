@@ -255,3 +255,11 @@ Das aktuelle vollständige Add-in-Paket wurde vom Mac nach Resources/AddIn über
 Isolierte Clienttests mit simulierten Agent-Antworten bestätigen: 409 erhält Notiztext und ausstehendes Bild, weitere Autosaves bleiben blockiert, der Entwurf wird beim Mailwechsel aufgehoben. Nach Entfernen einer Bildreferenz werden Inhalt ohne Referenz und keine zugehörigen Uploads gesendet. Sieben verschachtelte Markdown-Fälle sind bestanden. Die tatsächlichen Outlook-Tests für Bildentfernung nach erneutem Öffnen und Revisionskonflikt stehen weiterhin aus. Die SQLite-/HTTP-Server-Tests aus der vorigen Übergabe bleiben davon getrennt.
 
 Noch vor Freigabe: aktuelles Paket unter Windows ansehen, neue Installer-Installation und Update testen, tatsächliche Outlook-Sonderfälle prüfen. Delphi-Versionsnummern weiterhin in der IDE setzen.
+
+## PAServer-Altdateien am 11. November
+
+Nach erneutem Deployment verblieben das alte Stylesheet und sechs alte Bilddateien im PAServer-App-Bundle. Alle manifestierten Dateien waren vorhanden und ihre SHA-256-Prüfsummen korrekt. Der wiederholte strenge Inventarvergleich des Quellbundles verhinderte den Start der Add-in-Bereitstellung.
+
+TAddinDeploy toleriert nun ausschließlich im Quellbundle zusätzliche Dateien. Es validiert weiterhin alle manifestierten Dateien und kopiert nur diese plus addin-build.json in das Staging-Verzeichnis. Staging- und Zielprüfung bleiben streng. Das aktuelle Bundle wurde nach Sicherung der sieben Altdateien bereinigt und vom Node-Paketprüfer erfolgreich validiert.
+
+Offen: die geänderte Delphi-Unit kompilieren und auf macOS starten. Danach bei zusätzlich im Quellbundle abgelegtem altem CSS prüfen, dass nur das aktuelle Paket installiert wird. Eine geänderte oder fehlende manifestierte Datei muss weiterhin zur Ablehnung führen.
