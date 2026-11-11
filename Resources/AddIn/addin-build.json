@@ -39,7 +39,7 @@
     },
     {
       "path": "manifest.xml",
-      "sha256": "8b7e759b9c6e4c721163595a00cf83903874a951434ccaca992b3954cf6d01d3"
+      "sha256": "ceccc0fe4c87999e225574251db3d1e8c2e2c0e2348f68b3e10701d2bdc817de"
     },
     {
       "path": "polyfill.js",
@@ -51,8 +51,8 @@
     },
     {
       "path": "taskpane.js",
-      "sha256": "30718d4468afc6bc52e5774832dd5d161082084698ff7182a9d609c36751f65b"
+      "sha256": "99fb0030b428ba248ff160b5c9452a73dee5074e8e59318adf282c9af7fc52d6"
     }
   ],
-  "buildId": "115819fc203ccd0acbea1dce295757528102edfe01b365dae223fe299408b4c9"
+  "buildId": "4418f15898795284fa2645b8cfd3e6594540e531db21474174a7d00e6c5f3102"
 }

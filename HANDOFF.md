@@ -263,3 +263,9 @@ Nach erneutem Deployment verblieben das alte Stylesheet und sechs alte Bilddatei
 TAddinDeploy toleriert nun ausschließlich im Quellbundle zusätzliche Dateien. Es validiert weiterhin alle manifestierten Dateien und kopiert nur diese plus addin-build.json in das Staging-Verzeichnis. Staging- und Zielprüfung bleiben streng. Das aktuelle Bundle wurde nach Sicherung der sieben Altdateien bereinigt und vom Node-Paketprüfer erfolgreich validiert.
 
 Offen: die geänderte Delphi-Unit kompilieren und auf macOS starten. Danach bei zusätzlich im Quellbundle abgelegtem altem CSS prüfen, dass nur das aktuelle Paket installiert wird. Eine geänderte oder fehlende manifestierte Datei muss weiterhin zur Ablehnung führen.
+
+## Versionsabgleich 1.2.2.1
+
+Installer MyAppVersion sowie Add-in-Konfiguration und Manifest stehen auf 1.2.2.1. Das Add-in wurde erfolgreich nativ gebaut, installiert und vollständig nach Resources/AddIn exportiert. Mac-Commit 474fad5. Der Anwender hat Bildentfernung mit Speichern und erneutem Öffnen sowie den Konfliktfall in zwei Taskpanes (Hauptfenster und separates Mailfenster) erfolgreich getestet. Diese beiden Outlook-Tests sind damit bestanden.
+
+Delphi-Versionsfelder wurden hier nicht geändert. Win64/Release zeigt FileVersion und ProductVersion 1.2.2.1. OSXARM64/Release zeigt CFBundleShortVersionString 1.2.2.1, aber numerisch noch VerInfo_Build=2. Vor Release in der IDE prüfen und abgleichen. Installer neu kompilieren und Update auf dem Windows-Test-PC ausführen.
