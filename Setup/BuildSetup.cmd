@@ -22,11 +22,17 @@ if not exist "..\Resources\Windows\MN-OK-ALL.ico" (
 )
 
 if not "%~1"=="" (
+  where node >nul 2>nul
+  if errorlevel 1 (
+    echo FEHLER: Der optionale Paketimport benoetigt Node.js im PATH.
+    echo Ohne Importpfad verwendet BuildSetup das vorhandene Paket in Resources\Addin.
+    exit /b 7
+  )
   node "%~dp0addin-package.cjs" deploy "%~1" "%~dp0..\Resources\Addin"
   if errorlevel 1 exit /b 7
 )
 
-node "%~dp0addin-package.cjs" validate "%~dp0..\Resources\Addin"
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%~dp0VerifyAddin.ps1" -Directory "%~dp0..\Resources\Addin"
 if errorlevel 1 exit /b 7
 
 if not exist "RemoveLocalCertificate.ps1" (

@@ -25,7 +25,13 @@ try {
     foreach ($required in @('taskpane.html', 'taskpane.js', 'commands.html', 'commands.js', 'polyfill.js', 'manifest.xml')) {
         if (!$names.ContainsKey($required)) { throw "Missing file: $required" }
     }
-    if (@(Get-ChildItem -LiteralPath $root -File -Recurse).Count -ne $names.Count + 1) { throw 'Unexpected build files' }
+    # SMB/Finder-Metadaten gehoeren nicht zum exportierten Paket.
+    $packageFiles = @(Get-ChildItem -LiteralPath $root -File -Recurse -Force | Where-Object {
+        $relative = $_.FullName.Substring($root.Length).TrimStart('\').Replace('\', '/')
+        $relative -notmatch '(^|/)(\.git|\.DAV|\.DS_Store)(/|$)' -and
+            $relative -notmatch '(^|/)\._'
+    })
+    if ($packageFiles.Count -ne $names.Count + 1) { throw 'Unexpected build files' }
     exit 0
 } catch {
     Write-Error $_

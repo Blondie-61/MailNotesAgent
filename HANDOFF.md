@@ -269,3 +269,9 @@ Offen: die geänderte Delphi-Unit kompilieren und auf macOS starten. Danach bei 
 Installer MyAppVersion sowie Add-in-Konfiguration und Manifest stehen auf 1.2.2.1. Das Add-in wurde erfolgreich nativ gebaut, installiert und vollständig nach Resources/AddIn exportiert. Mac-Commit 474fad5. Der Anwender hat Bildentfernung mit Speichern und erneutem Öffnen sowie den Konfliktfall in zwei Taskpanes (Hauptfenster und separates Mailfenster) erfolgreich getestet. Diese beiden Outlook-Tests sind damit bestanden.
 
 Delphi-Versionsfelder wurden hier nicht geändert. Win64/Release zeigt FileVersion und ProductVersion 1.2.2.1. OSXARM64/Release zeigt CFBundleShortVersionString 1.2.2.1, aber numerisch noch VerInfo_Build=2. Vor Release in der IDE prüfen und abgleichen. Installer neu kompilieren und Update auf dem Windows-Test-PC ausführen.
+
+## BuildSetup ohne Node.js
+
+BuildSetup ohne Parameter und Setup/Addin.Deploy.targets verwenden jetzt den vorhandenen PowerShell-Pruefer. Der optionale Node-Import prueft Node im PATH und meldet eine konkrete Voraussetzung. Der PowerShell-Pruefer ignoriert SMB/Finder-Metadaten wie der Node-Pruefer und der Installer-Export.
+
+In der laufenden Windows-VM wurde VerifyAddin.ps1 gegen Resources/AddIn erfolgreich ausgefuehrt. Der vollstaendige BuildSetup-Durchlauf erzeugte Output/MailNotesAgent-Setup-1.2.2.1.exe erfolgreich. Der erste Durchlauf scheiterte beim Inno-Ressourcenupdate mit EndUpdateResource (110); ein erneuter Durchlauf gelang. Die Ursache des einmaligen Dateizugriffsfehlers ist nicht geklaert. Installation und Update dieses Setups auf dem Test-PC bleiben offen.

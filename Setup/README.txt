@@ -80,3 +80,8 @@ Dann öffnet das Setup automatisch:
 
 Die eigentliche Auswahl "Aus Datei hinzufügen" erfolgt weiterhin im
 Microsoft-365-/Outlook-Konto.
+
+Paketpruefung ohne Node.js
+BuildSetup.cmd ohne Parameter prueft Resources/AddIn mit Windows PowerShell.
+Auch das Delphi-Deployment verwendet VerifyAddin.ps1. Node.js ist nur fuer
+den optionalen Paketimport mit BuildSetup.cmd <Quellordner> erforderlich.

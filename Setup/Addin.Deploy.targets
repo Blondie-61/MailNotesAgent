@@ -10,6 +10,6 @@
     </DeployFile>
   </ItemGroup>
   <Target Name="ValidateAddinPackage" BeforeTargets="BeforeBuild;_CalculateDeployment" Condition="'$(Config)'=='Release'">
-    <Exec Command="node &quot;$(MSBuildThisFileDirectory)addin-package.cjs&quot; validate &quot;$(MSBuildProjectDirectory)\..\Resources\Addin&quot;" />
+    <Exec Command="&quot;$(SystemRoot)\System32\WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)VerifyAddin.ps1&quot; -Directory &quot;$(MSBuildProjectDirectory)\..\Resources\Addin&quot;" />
   </Target>
 </Project>
