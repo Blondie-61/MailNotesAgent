@@ -1,0 +1,15 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Condition="'$(Config)'=='Release' And '$(Platform)'=='OSXARM64'">
+    <DeployFile Include="$(MSBuildProjectDirectory)\..\Resources\Addin\**\*"
+                Exclude="$(MSBuildProjectDirectory)\..\Resources\Addin\**\.DS_Store;$(MSBuildProjectDirectory)\..\Resources\Addin\**\._*;$(MSBuildProjectDirectory)\..\Resources\Addin\.git\**\*;$(MSBuildProjectDirectory)\..\Resources\Addin\.DAV\**\*">
+      <RemoteDir>MailNotesAgent.app\Contents\Resources\Addin\%(RecursiveDir)</RemoteDir>
+      <RemoteName>%(Filename)%(Extension)</RemoteName>
+      <DeployClass>File</DeployClass>
+      <Operation>0</Operation>
+      <Overwrite>True</Overwrite>
+    </DeployFile>
+  </ItemGroup>
+  <Target Name="ValidateAddinPackage" BeforeTargets="BeforeBuild;_CalculateDeployment" Condition="'$(Config)'=='Release'">
+    <Exec Command="node &quot;$(MSBuildThisFileDirectory)addin-package.cjs&quot; validate &quot;$(MSBuildProjectDirectory)\..\Resources\Addin&quot;" />
+  </Target>
+</Project>

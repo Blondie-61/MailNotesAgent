@@ -26,14 +26,14 @@ body {
 .app-header {
     display: flex;
     align-items: center;
-    gap: 14px;
-    margin-bottom: 24px;
+    gap: 10px;
+    margin-bottom: 14px;
 }
 
 .app-logo {
     flex: 0 0 auto;
-    width: 46px;
-    height: 46px;
+    width: 32px;
+    height: 32px;
 }
 
 .app-logo img {
@@ -81,7 +81,7 @@ body {
 
 h1 {
     margin: 0;
-    font-size: 32px;
+    font-size: 22px;
     font-weight: 700;
 }
 
@@ -93,8 +93,8 @@ h1 {
 
 
 .shl-status {
-    margin-top: 5px;
-    font-size: 12px;
+    margin-top: 2px;
+    font-size: 11px;
     font-weight: 600;
     line-height: 1.25;
     transition: opacity 140ms ease;
@@ -201,6 +201,30 @@ h1 {
     height: 1px;
     margin: 12px 0;
     background: #eeeeef;
+}
+
+.mail-details-card {
+    padding: 12px 16px;
+}
+
+.mail-details-card .field {
+    display: grid;
+    grid-template-columns: 65px minmax(0, 1fr);
+    align-items: baseline;
+    gap: 8px;
+    padding: 3px 0;
+}
+
+.mail-details-card .label {
+    margin-bottom: 0;
+}
+
+.mail-details-card .value {
+    font-size: 14px;
+}
+
+.mail-details-card .separator {
+    margin: 6px 0;
 }
 
 /* Überschriften */
@@ -809,19 +833,40 @@ button:disabled {
     padding-bottom: 12px;
 }
 
-.search-title {
-    margin-bottom: 10px;
+.search-input-row {
+    position: relative;
+    display: flex;
 }
 
-.search-input-row {
+.search-filter-row {
     display: flex;
-    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.search-filter-row > button {
+    min-height: 28px;
+    padding: 4px 9px;
+    border-radius: 7px;
+}
+
+.search-filter-row > .tags-filter-button,
+.search-filter-row > .persons-filter-button {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.search-input::-webkit-search-cancel-button {
+    -webkit-appearance: none;
 }
 
 .search-input {
     flex: 1;
     min-width: 0;
-    padding: 10px 12px;
+    width: 100%;
+    padding: 9px 36px 9px 12px;
     font: inherit;
     font-size: 14px;
     color: #1d1d1f;
@@ -1056,13 +1101,28 @@ button:disabled {
 .person-context-menu-item:hover { background: #eef6ff; }
 
 .search-clear-button {
-    width: 40px;
+    position: absolute;
+    right: 5px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 28px;
+    height: 28px;
+    padding: 0;
     border: 0;
-    border-radius: 10px;
-    font-size: 22px;
+    border-radius: 50%;
+    font-size: 20px;
+    line-height: 1;
     cursor: pointer;
+    background: transparent;
+    color: #6e6e73;
+}
+
+.search-clear-button:hover {
     background: #e8e8ed;
-    color: #1d1d1f;
+}
+
+.search-status:empty {
+    display: none;
 }
 
 .search-status {
@@ -1350,3 +1410,100 @@ button:disabled {
 .pending-open-notice > div {
     flex: 0 0 100%;
 }
+
+/* Markdown-Leseansicht: dieselbe Flaeche wie der bestehende Editor. */
+.note-markdown-view {
+    width: 100%;
+    min-height: 180px;
+    padding: 12px;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    tab-size: 1;
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.4;
+    color: #1d1d1f;
+    background: #fbfbfd;
+    border: 1px solid #c7c7cc;
+    border-radius: 10px;
+    cursor: text;
+}
+.note-markdown-empty { color: #8e8e93; }
+.note-markdown-checkbox { cursor: default; user-select: none; }
+.note-editor[hidden], .note-markdown-view[hidden] { display: none !important; }
+
+/* Markdown-Ansicht: nur Darstellung, keine Eingriffe in den Editor. */
+.note-markdown-line { min-height: 1.25em; }
+.note-markdown-heading { font-weight: 700; margin-top: .3em; }
+.note-markdown-h1 { font-size: 1.35em; }
+.note-markdown-h2 { font-size: 1.2em; }
+.note-markdown-h3 { font-size: 1.08em; }
+.note-markdown-quote { border-left: 3px solid #9ba6b2; padding-left: .7em; opacity: .88; }
+.note-markdown-list { padding-left: 1.5em; text-indent: -1.5em; }
+.note-markdown-list-marker { display: inline-block; width: 1.5em; text-indent: 0; }
+.note-markdown-rule hr { border: 0; border-top: 1px solid #a5a5a5; margin: .55em 0; }
+.note-markdown-inline-code, .note-markdown-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: rgba(128,128,128,.12); border-radius: 4px; }
+.note-markdown-inline-code { padding: 0 .2em; }
+.note-markdown-code { padding: .65em .8em; overflow-x: auto; white-space: pre; margin: .3em 0; font-size: .92em; }
+
+/* Schwebende Formatierungsleiste: unabhaengig vom Editor-Clipping. */
+.note-editor-wrap { position: relative; }
+.note-format-toolbar[hidden], .note-format-heading-menu[hidden] { display: none !important; }
+.note-format-toolbar {
+    position: fixed; z-index: 10000; top: 0; left: 0;
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start;
+    gap: 1px; box-sizing: border-box;
+    width: max-content; max-width: calc(100vw - 12px);
+    white-space: nowrap;
+    padding: 3px; border-radius: 8px;
+    border: 1px solid #c7c7cc; background: #fff;
+    box-shadow: 0 3px 12px rgba(0,0,0,.15);
+}
+.note-format-toolbar button {
+    flex: 0 0 auto; min-width: 25px; height: 28px; padding: 2px 4px;
+    border: 0; border-radius: 5px; background: transparent;
+    color: #242424; cursor: pointer; font-size: 13px;
+}
+.note-format-toolbar button:hover { background: #e9eef6; }
+.note-format-separator { height: 18px; border-left: 1px solid #c7c7cc; margin: 0 2px; }
+.note-format-heading-wrap { position: relative; flex: 0 0 auto; }
+.note-format-heading-menu {
+    position: absolute; top: calc(100% + 5px); left: 0;
+    z-index: 10001; min-width: 58px;
+    display: flex; flex-direction: column; gap: 1px;
+    padding: 4px; border: 1px solid #c7c7cc; border-radius: 7px;
+    background: #fff; box-shadow: 0 3px 12px rgba(0,0,0,.15);
+}
+.note-format-heading-menu button { width: 100%; text-align: left; }
+
+/* Das H-Menue bleibt auch in einer schmalen Taskpane sichtbar. */
+@media (max-width: 440px) {
+    .note-format-heading-menu { left: auto; right: 0; }
+}
+
+/* Markdown-Links und kompakter Linkdialog. */
+.note-markdown-link { color: #1769aa; text-decoration: underline; cursor: pointer; }
+.note-format-link-button svg { display: block; margin: auto; }
+.note-md-link-backdrop {
+    position: fixed; inset: 0; z-index: 11000;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.22); padding: 12px;
+}
+.note-md-link-panel {
+    box-sizing: border-box; width: min(360px, 100%); padding: 16px;
+    border-radius: 11px; background: #fff; color: #242424;
+    box-shadow: 0 6px 24px rgba(0,0,0,.22);
+}
+.note-md-link-title { font-size: 16px; font-weight: 650; margin-bottom: 12px; }
+.note-md-link-panel label { display: block; font-size: 12px; }
+.note-md-link-panel input {
+    display: block; width: 100%; box-sizing: border-box; margin-top: 5px;
+    padding: 8px; border: 1px solid #b9b9c0; border-radius: 6px;
+    font: inherit; font-size: 13px;
+}
+.note-md-link-error { min-height: 18px; color: #ad2534; font-size: 12px; margin-top: 5px; }
+.note-md-link-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.note-md-link-actions button { padding: 6px 12px; border: 1px solid #c7c7cc; border-radius: 6px; cursor: pointer; }
+.note-md-link-actions button:last-child { background: #e8f0ff; }
+
+.note-markdown-image { display: block; max-width: 100%; height: auto; }

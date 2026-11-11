@@ -45,6 +45,11 @@ if [ ! -f "$PLIST_TEMPLATE" ]; then
   exit 4
 fi
 
+if [ ! -f "$SOURCE_APP/Contents/Resources/Addin/addin-build.json" ]; then
+  echo "Fehler: Das App-Bundle enthaelt kein geprueftes Add-in-Buildmanifest."
+  exit 4
+fi
+
 tls_pair_matches() {
   local cert_modulus
   local key_modulus
@@ -182,8 +187,22 @@ else
 fi
 
 echo "MailNotesAgent.app installieren ..."
-rm -rf "$INSTALL_APP"
-/usr/bin/ditto "$SOURCE_APP" "$INSTALL_APP"
+STAGING_APP="$INSTALL_APP.staging"
+ROLLBACK_APP="$INSTALL_APP.rollback"
+if [ -e "$STAGING_APP" ] || [ -e "$ROLLBACK_APP" ]; then
+  echo "Fehler: Staging/Rollback einer vorigen Installation vorhanden."
+  exit 6
+fi
+/usr/bin/ditto "$SOURCE_APP" "$STAGING_APP"
+if [ -d "$INSTALL_APP" ]; then
+  mv "$INSTALL_APP" "$ROLLBACK_APP"
+fi
+if ! mv "$STAGING_APP" "$INSTALL_APP"; then
+  if [ -d "$ROLLBACK_APP" ]; then
+    mv "$ROLLBACK_APP" "$INSTALL_APP"
+  fi
+  exit 6
+fi
 
 echo "LaunchAgent-Konfiguration erzeugen ..."
 ESCAPED_HOME=$(printf '%s\n' "$HOME" | sed 's/[&|]/\\&/g')
@@ -207,6 +226,9 @@ fi
 
 echo
 if curl --silent --fail --max-time 3 https://localhost:48571/ping; then
+  if [ -d "$ROLLBACK_APP" ]; then
+    rm -rf "$ROLLBACK_APP"
+  fi
   echo
   echo "MailNotesAgent wurde erfolgreich installiert und gestartet."
 else

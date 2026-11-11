@@ -15,23 +15,15 @@
     <ItemGroup Condition="'$(Platform)'=='Android64'"/>
     <ItemGroup Condition="'$(Platform)'=='Android'"/>
     <ItemGroup Condition="'$(Platform)'=='OSXARM64'">
-        <DeployFile Include="..\Resources\MacOS\MN-WARN-SW.icns" Condition="'$(Config)'=='Release'">
-            <RemoteDir>MailNotesAgent.app\Contents\Resources\StartUp\</RemoteDir>
-            <RemoteName>MN-WARN-SW.icns</RemoteName>
-            <DeployClass>File</DeployClass>
-            <Operation>0</Operation>
+        <DeployFile Include="OSXARM64\Debug\MailNotesAgent" Condition="'$(Config)'=='Debug'">
+            <RemoteDir>MailNotesAgent.app\Contents\MacOS\</RemoteDir>
+            <RemoteName>MailNotesAgent</RemoteName>
+            <DeployClass>ProjectOutput</DeployClass>
+            <Operation>1</Operation>
             <LocalCommand/>
             <RemoteCommand/>
             <Overwrite>True</Overwrite>
-        </DeployFile>
-        <DeployFile Include="..\Resources\Addin\assets\icon-32.png" Condition="'$(Config)'=='Release'">
-            <RemoteDir>MailNotesAgent.app\Contents\Resources\Addin\assets\</RemoteDir>
-            <RemoteName>icon-32.png</RemoteName>
-            <DeployClass>File</DeployClass>
-            <Operation>0</Operation>
-            <LocalCommand/>
-            <RemoteCommand/>
-            <Overwrite>True</Overwrite>
+            <Required>True</Required>
         </DeployFile>
         <DeployFile Include="$(BDS)\Redist\osx64\libcgsqlite3.dylib" Condition="'$(Config)'=='Release'">
             <RemoteDir>MailNotesAgent.app\Contents\MacOS\</RemoteDir>
@@ -52,114 +44,6 @@
             <Overwrite>True</Overwrite>
             <Required>True</Required>
         </DeployFile>
-        <DeployFile Include="..\Resources\Addin\taskpane.js" Condition="'$(Config)'=='Release'">
-            <RemoteDir>MailNotesAgent.app\Contents\Resources\Addin\</RemoteDir>
-            <RemoteName>taskpane.js</RemoteName>
-            <DeployClass>File</DeployClass>
-            <Operation>0</Operation>
-            <LocalCommand/>
-            <RemoteCommand/>
-            <Overwrite>True</Overwrite>
-        </DeployFile>
-        <DeployFile Include="..\Resources\Addin\assets\icon-64.png" Condition="'$(Config)'=='Release'">
-            <RemoteDir>MailNotesAgent.app\Contents\Resources\Addin\assets\</RemoteDir>
-            <RemoteName>icon-64.png</RemoteName>
-            <DeployClass>File</DeployClass>
-            <Operation>0</Operation>
-            <LocalCommand/>
-            <RemoteCommand/>
-            <Overwrite>True</Overwrite>
-        </DeployFile>
-        <DeployFile Include="..\Resources\Addin\taskpane.html" Condition="'$(Config)'=='Release'">
-            <RemoteDir>MailNotesAgent.app\Contents\Resources\Addin\</RemoteDir>
-            <RemoteName>taskpane.html</RemoteName>
-            <DeployClass>File</DeployClass>
-            <Operation>0</Operation>
-            <LocalCommand/>
-            <RemoteCommand/>
-            <Overwrite>True</Overwrite>
-        </DeployFile>
-        <DeployFile Include="..\Resources\Addin\polyfill.js" Condition="'$(Config)'=='Release'">
-            <RemoteDir>MailNotesAgent.app\Contents\Resources\Addin\</RemoteDir>
-            <RemoteName>polyfill.js</RemoteName>
-            <DeployClass>File</DeployClass>
-            <Operation>0</Operation>
-            <LocalCommand/>
-            <RemoteCommand/>
-            <Overwrite>True</Overwrite>
-        </DeployFile>
-        <DeployFile Include="OSXARM64\Release\MailNotesAgent.info.plist" Condition="'$(Config)'=='Release'">
-            <RemoteDir>MailNotesAgent.app\Contents\</RemoteDir>
-            <RemoteName>Info.plist</RemoteName>
-            <DeployClass>ProjectOSXInfoPList</DeployClass>
-            <Operation>1</Operation>
-            <LocalCommand/>
-            <RemoteCommand/>
-            <Overwrite>True</Overwrite>
-        </DeployFile>
-        <DeployFile Include="..\Resources\Addin\assets\icon-80.png" Condition="'$(Config)'=='Release'">
-            <RemoteDir>MailNotesAgent.app\Contents\Resources\Addin\assets\</RemoteDir>
-            <RemoteName>icon-80.png</RemoteName>
-            <DeployClass>File</DeployClass>
-            <Operation>0</Operation>
-            <LocalCommand/>
-            <RemoteCommand/>
-            <Overwrite>True</Overwrite>
-        </DeployFile>
-        <DeployFile Include="..\Resources\MacOS\MN-ERR-SW.icns" Condition="'$(Config)'=='Release'">
-            <RemoteDir>MailNotesAgent.app\Contents\Resources\StartUp\</RemoteDir>
-            <RemoteName>MN-ERR-SW.icns</RemoteName>
-            <DeployClass>File</DeployClass>
-            <Operation>0</Operation>
-            <LocalCommand/>
-            <RemoteCommand/>
-            <Overwrite>True</Overwrite>
-        </DeployFile>
-        <DeployFile Include="..\Resources\Addin\assets\icon-128.png" Condition="'$(Config)'=='Release'">
-            <RemoteDir>MailNotesAgent.app\Contents\Resources\Addin\assets\</RemoteDir>
-            <RemoteName>icon-128.png</RemoteName>
-            <DeployClass>File</DeployClass>
-            <Operation>0</Operation>
-            <LocalCommand/>
-            <RemoteCommand/>
-            <Overwrite>True</Overwrite>
-        </DeployFile>
-        <DeployFile Include="OSXARM64\Release\MailNotesAgent.entitlements" Condition="'$(Config)'=='Release'">
-            <RemoteDir>MailNotesAgent.app\..\</RemoteDir>
-            <RemoteName>MailNotesAgent.entitlements</RemoteName>
-            <DeployClass>ProjectOSXEntitlements</DeployClass>
-            <Operation>1</Operation>
-            <LocalCommand/>
-            <RemoteCommand/>
-            <Overwrite>True</Overwrite>
-        </DeployFile>
-        <DeployFile Include="..\Resources\Addin\commands.js" Condition="'$(Config)'=='Release'">
-            <RemoteDir>MailNotesAgent.app\Contents\Resources\Addin\</RemoteDir>
-            <RemoteName>commands.js</RemoteName>
-            <DeployClass>File</DeployClass>
-            <Operation>0</Operation>
-            <LocalCommand/>
-            <RemoteCommand/>
-            <Overwrite>True</Overwrite>
-        </DeployFile>
-        <DeployFile Include="..\Resources\Addin\assets\icon-16.png" Condition="'$(Config)'=='Release'">
-            <RemoteDir>MailNotesAgent.app\Contents\Resources\Addin\assets\</RemoteDir>
-            <RemoteName>icon-16.png</RemoteName>
-            <DeployClass>File</DeployClass>
-            <Operation>0</Operation>
-            <LocalCommand/>
-            <RemoteCommand/>
-            <Overwrite>True</Overwrite>
-        </DeployFile>
-        <DeployFile Include="..\Resources\Addin\assets\logo-filled.png" Condition="'$(Config)'=='Release'">
-            <RemoteDir>MailNotesAgent.app\Contents\Resources\Addin\assets\</RemoteDir>
-            <RemoteName>logo-filled.png</RemoteName>
-            <DeployClass>File</DeployClass>
-            <Operation>0</Operation>
-            <LocalCommand/>
-            <RemoteCommand/>
-            <Overwrite>True</Overwrite>
-        </DeployFile>
         <DeployFile Include="..\Resources\Windows\MN-OK-ALL.ico" Condition="'$(Config)'=='Debug'">
             <RemoteDir>MailNotesAgent.app\Contents\Resources\StartUp\</RemoteDir>
             <RemoteName>MN-OK-ALL.ico</RemoteName>
@@ -178,15 +62,6 @@
             <RemoteCommand/>
             <Overwrite>True</Overwrite>
         </DeployFile>
-        <DeployFile Include="..\Resources\Addin\ca38231d7ef5a0a1efff.css" Condition="'$(Config)'=='Release'">
-            <RemoteDir>MailNotesAgent.app\Contents\Resources\Addin\</RemoteDir>
-            <RemoteName>ca38231d7ef5a0a1efff.css</RemoteName>
-            <DeployClass>File</DeployClass>
-            <Operation>0</Operation>
-            <LocalCommand/>
-            <RemoteCommand/>
-            <Overwrite>True</Overwrite>
-        </DeployFile>
         <DeployFile Include="OSXARM64\Debug\MailNotesAgent.entitlements" Condition="'$(Config)'=='Debug'">
             <RemoteDir>MailNotesAgent.app\..\</RemoteDir>
             <RemoteName>MailNotesAgent.entitlements</RemoteName>
@@ -196,11 +71,11 @@
             <RemoteCommand/>
             <Overwrite>True</Overwrite>
         </DeployFile>
-        <DeployFile Include="..\Resources\Addin\manifest.xml" Condition="'$(Config)'=='Release'">
-            <RemoteDir>MailNotesAgent.app\Contents\Resources\Addin\</RemoteDir>
-            <RemoteName>manifest.xml</RemoteName>
-            <DeployClass>File</DeployClass>
-            <Operation>0</Operation>
+        <DeployFile Include="OSXARM64\Release\MailNotesAgent.info.plist" Condition="'$(Config)'=='Release'">
+            <RemoteDir>MailNotesAgent.app\Contents\</RemoteDir>
+            <RemoteName>Info.plist</RemoteName>
+            <DeployClass>ProjectOSXInfoPList</DeployClass>
+            <Operation>1</Operation>
             <LocalCommand/>
             <RemoteCommand/>
             <Overwrite>True</Overwrite>
@@ -208,15 +83,6 @@
         <DeployFile Include="..\Resources\MacOS\OpenSSL\libcrypto.3.dylib" Condition="'$(Config)'=='Release'">
             <RemoteDir>MailNotesAgent.app\Contents\MacOS\</RemoteDir>
             <RemoteName>libcrypto.3.dylib</RemoteName>
-            <DeployClass>File</DeployClass>
-            <Operation>0</Operation>
-            <LocalCommand/>
-            <RemoteCommand/>
-            <Overwrite>True</Overwrite>
-        </DeployFile>
-        <DeployFile Include="..\Resources\Addin\commands.html" Condition="'$(Config)'=='Release'">
-            <RemoteDir>MailNotesAgent.app\Contents\Resources\Addin\</RemoteDir>
-            <RemoteName>commands.html</RemoteName>
             <DeployClass>File</DeployClass>
             <Operation>0</Operation>
             <LocalCommand/>
@@ -232,10 +98,28 @@
             <RemoteCommand/>
             <Overwrite>True</Overwrite>
         </DeployFile>
+        <DeployFile Include="..\Resources\MacOS\MN-ERR-SW.icns" Condition="'$(Config)'=='Release'">
+            <RemoteDir>MailNotesAgent.app\Contents\Resources\StartUp\</RemoteDir>
+            <RemoteName>MN-ERR-SW.icns</RemoteName>
+            <DeployClass>File</DeployClass>
+            <Operation>0</Operation>
+            <LocalCommand/>
+            <RemoteCommand/>
+            <Overwrite>True</Overwrite>
+        </DeployFile>
         <DeployFile Include="OSXARM64\Debug\MailNotesAgent.info.plist" Condition="'$(Config)'=='Debug'">
             <RemoteDir>MailNotesAgent.app\Contents\</RemoteDir>
             <RemoteName>Info.plist</RemoteName>
             <DeployClass>ProjectOSXInfoPList</DeployClass>
+            <Operation>1</Operation>
+            <LocalCommand/>
+            <RemoteCommand/>
+            <Overwrite>True</Overwrite>
+        </DeployFile>
+        <DeployFile Include="OSXARM64\Release\MailNotesAgent.entitlements" Condition="'$(Config)'=='Release'">
+            <RemoteDir>MailNotesAgent.app\..\</RemoteDir>
+            <RemoteName>MailNotesAgent.entitlements</RemoteName>
+            <DeployClass>ProjectOSXEntitlements</DeployClass>
             <Operation>1</Operation>
             <LocalCommand/>
             <RemoteCommand/>
@@ -250,15 +134,14 @@
             <RemoteCommand/>
             <Overwrite>True</Overwrite>
         </DeployFile>
-        <DeployFile Include="OSXARM64\Debug\MailNotesAgent" Condition="'$(Config)'=='Debug'">
-            <RemoteDir>MailNotesAgent.app\Contents\MacOS\</RemoteDir>
-            <RemoteName>MailNotesAgent</RemoteName>
-            <DeployClass>ProjectOutput</DeployClass>
-            <Operation>1</Operation>
+        <DeployFile Include="..\Resources\MacOS\MN-WARN-SW.icns" Condition="'$(Config)'=='Release'">
+            <RemoteDir>MailNotesAgent.app\Contents\Resources\StartUp\</RemoteDir>
+            <RemoteName>MN-WARN-SW.icns</RemoteName>
+            <DeployClass>File</DeployClass>
+            <Operation>0</Operation>
             <LocalCommand/>
             <RemoteCommand/>
             <Overwrite>True</Overwrite>
-            <Required>True</Required>
         </DeployFile>
     </ItemGroup>
     <ItemGroup Condition="'$(Platform)'=='Win64'">
@@ -270,6 +153,16 @@
             <LocalCommand/>
             <RemoteCommand/>
             <Overwrite>True</Overwrite>
+        </DeployFile>
+        <DeployFile Include="Win64\Release\MailNotesAgent.exe" Condition="'$(Config)'=='Release'">
+            <RemoteDir>MailNotesAgent\</RemoteDir>
+            <RemoteName>MailNotesAgent.exe</RemoteName>
+            <DeployClass>ProjectOutput</DeployClass>
+            <Operation>0</Operation>
+            <LocalCommand/>
+            <RemoteCommand/>
+            <Overwrite>True</Overwrite>
+            <Required>True</Required>
         </DeployFile>
         <DeployFile Include="Win64\Debug\MailNotesAgent.exe" Condition="'$(Config)'=='Debug'">
             <RemoteDir>MailNotesAgent\</RemoteDir>
@@ -289,16 +182,6 @@
             <LocalCommand/>
             <RemoteCommand/>
             <Overwrite>True</Overwrite>
-        </DeployFile>
-        <DeployFile Include="Win64\Release\MailNotesAgent.exe" Condition="'$(Config)'=='Release'">
-            <RemoteDir>MailNotesAgent\</RemoteDir>
-            <RemoteName>MailNotesAgent.exe</RemoteName>
-            <DeployClass>ProjectOutput</DeployClass>
-            <Operation>0</Operation>
-            <LocalCommand/>
-            <RemoteCommand/>
-            <Overwrite>True</Overwrite>
-            <Required>True</Required>
         </DeployFile>
     </ItemGroup>
     <ItemGroup Condition="'$(Platform)'=='iOSDevice64'"/>

@@ -1,4 +1,4 @@
-﻿; MailNotes Agent - Windows Setup 0.2
+; MailNotes Agent - Windows Setup 0.2
 ; Erstellt mit Inno Setup 6
 
 #define MyAppName "MailNotes Agent"
@@ -47,13 +47,14 @@ Name: "addinsetup"; Description: "Outlook-Add-in erstmalig einrichten / Manifest
 [InstallDelete]
 ; Add-in-Dateien bei jedem Update vollständig ersetzen, damit keine alten
 ; Webpack-Hash-Dateien oder sonstigen Altstände im Addin-Ordner verbleiben.
-Type: filesandordirs; Name: "{autopf}\MailNotes\Addin\*"
+Type: filesandordirs; Name: "{autopf}\MailNotes\Addin.staging\*"
 
 [Files]
 Source: "..\Main\Win64\Release\MailNotesAgent.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\Data\MailNotes.sqlite"; DestDir: "{app}\Data"; Flags: ignoreversion
-Source: "..\Resources\AddIn\*"; DestDir: "{autopf}\MailNotes\Addin"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\Resources\AddIn\*"; DestDir: "{autopf}\MailNotes\Addin.staging"; Excludes: ".DS_Store,._*,.git\*,.DAV\*"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "OpenSSL\*"; DestDir: "{app}"; Flags: ignoreversion
+Source: "VerifyAddin.ps1"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "CreateLocalCertificate.ps1"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "RemoveLocalCertificate.ps1"; DestDir: "{app}\Tools"; Flags: ignoreversion
 Source: "..\Resources\Windows\MN-OK-ALL.ico"; DestDir: "{app}"; DestName: "MailNotes.ico"; Flags: ignoreversion
@@ -343,10 +344,36 @@ begin
   DeleteFile(DatabaseFile + '-shm');
 end;
 
+procedure InstallAddinPackage;
+var
+  Target, Staging, Rollback: string;
+  ResultCode: Integer;
+begin
+  Target := ExpandConstant('{autopf}\MailNotes\Addin');
+  Staging := Target + '.staging';
+  Rollback := Target + '.rollback';
+  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{tmp}\VerifyAddin.ps1') +
+    '" -Directory "' + Staging + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    RaiseException('Add-in-Pruefung konnte nicht gestartet werden.');
+  if ResultCode <> 0 then RaiseException('Add-in-Paket ist unvollstaendig oder veraendert.');
+  if DirExists(Rollback) then
+    if not DelTree(Rollback, True, True, True) then RaiseException('Add-in-Rollbackordner ist gesperrt.');
+  if DirExists(Target) then
+    if not RenameFile(Target, Rollback) then RaiseException('Add-in konnte nicht gesichert werden.');
+  if not RenameFile(Staging, Target) then
+  begin
+    if DirExists(Rollback) then
+      if not RenameFile(Rollback, Target) then RaiseException('Add-in-Rollback fehlgeschlagen: ' + Rollback);
+    RaiseException('Add-in konnte nicht aktiviert werden.');
+  end;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
+    InstallAddinPackage;
     CreateLocalCertificate;
     SaveMailNotesDataDirectory;
   end;

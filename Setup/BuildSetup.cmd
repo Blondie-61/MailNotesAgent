@@ -21,19 +21,13 @@ if not exist "..\Resources\Windows\MN-OK-ALL.ico" (
   exit /b 3
 )
 
-if not exist "..\Resources\AddIn\taskpane.html" (
-  echo FEHLER: ..\Resources\AddIn\taskpane.html fehlt.
-  echo Bitte zuerst den Production-Build des Outlook-Add-ins nach Resources\AddIn kopieren.
-  pause
-  exit /b 4
+if not "%~1"=="" (
+  node "%~dp0addin-package.cjs" deploy "%~1" "%~dp0..\Resources\Addin"
+  if errorlevel 1 exit /b 7
 )
 
-if not exist "..\Resources\AddIn\manifest.xml" (
-  echo FEHLER: ..\Resources\AddIn\manifest.xml fehlt.
-  echo Bitte zuerst den kompletten Production-Build des Outlook-Add-ins nach Resources\AddIn kopieren.
-  pause
-  exit /b 7
-)
+node "%~dp0addin-package.cjs" validate "%~dp0..\Resources\Addin"
+if errorlevel 1 exit /b 7
 
 if not exist "RemoveLocalCertificate.ps1" (
   echo FEHLER: Setup\RemoveLocalCertificate.ps1 fehlt.

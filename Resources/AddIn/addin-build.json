@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "path": "aa2dca20c464f7b7c1e7.css",
+      "sha256": "53f06923f412cebdd4627841c10037b2b5f857bf919439f67525b379827f87b9"
+    },
+    {
+      "path": "assets/icon-128.png",
+      "sha256": "4af9ae942fd0df90691e3c7475bf0417be98e49571ac54d8f6170fa3fd3773f6"
+    },
+    {
+      "path": "assets/icon-16.png",
+      "sha256": "e0a7a7bb42a4e9ba3f191c8f8b455c1ea22f3faba65c9862f45dd3523145afb4"
+    },
+    {
+      "path": "assets/icon-32.png",
+      "sha256": "e0d29be99f434d5c9ef20ca63e4405b022baa32e0a903f525f5f9df315fc113e"
+    },
+    {
+      "path": "assets/icon-64.png",
+      "sha256": "c1bad356e1d7bef383293eeb689f4bff505cb2ca2aa8169e1b4d08a2cf3ce87e"
+    },
+    {
+      "path": "assets/icon-80.png",
+      "sha256": "1aa979dc78dddb42a9dff8446566f70831ce1d06152d1fee87c63fd0e8695c81"
+    },
+    {
+      "path": "assets/logo-filled.png",
+      "sha256": "f9858ffa0af9082454c10cfe675e42fb04751656c8f9318c81e57add529597a2"
+    },
+    {
+      "path": "commands.html",
+      "sha256": "fe26a59ffb1d4e73a4e4896aefed714b8dd50015532e44938738136a33b3661f"
+    },
+    {
+      "path": "commands.js",
+      "sha256": "77ddd9f3bdd27b97747c50b66594b1ac3d1091aed43ae29363015ec6fcd33b9f"
+    },
+    {
+      "path": "manifest.xml",
+      "sha256": "8b7e759b9c6e4c721163595a00cf83903874a951434ccaca992b3954cf6d01d3"
+    },
+    {
+      "path": "polyfill.js",
+      "sha256": "426fa4423e376d9b2f4ec00b5dca71b60af7d0639310dcf0b816a461218619c9"
+    },
+    {
+      "path": "taskpane.html",
+      "sha256": "4fa980ebc45ee2b608b0c502c120548fb63ee010d1c2f408218d986b57b26a49"
+    },
+    {
+      "path": "taskpane.js",
+      "sha256": "30718d4468afc6bc52e5774832dd5d161082084698ff7182a9d609c36751f65b"
+    }
+  ],
+  "buildId": "115819fc203ccd0acbea1dce295757528102edfe01b365dae223fe299408b4c9"
+}
