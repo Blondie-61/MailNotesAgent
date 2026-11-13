@@ -17,12 +17,18 @@ PLIST_TEMPLATE="$SCRIPT_DIR/de.mailnotes.agent.plist.template"
 
 usage() {
   echo "Verwendung:"
-  echo "  $0 /Pfad/zu/MailNotesAgent.app"
+  echo "  $0 /Pfad/zu/MailNotesAgent.app [--autostart]"
   exit 1
 }
 
-if [ "$#" -ne 1 ]; then
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
   usage
+fi
+
+ENABLE_AUTOSTART=0
+if [ "$#" -eq 2 ]; then
+  if [ "$2" != "--autostart" ]; then usage; fi
+  ENABLE_AUTOSTART=1
 fi
 
 SOURCE_APP="${1%/}"
@@ -264,6 +270,19 @@ if [ -d "$INSTALL_APP" ]; then
 fi
 mv "$STAGING_APP" "$INSTALL_APP"
 NEW_INSTALLED=1
+
+if [ "$ENABLE_AUTOSTART" -eq 0 ]; then
+  LAUNCH_CHANGED=1
+  rm -f "$PLIST_TARGET"
+  if [ "$OLD_MOVED" -eq 1 ]; then
+    rm -rf "$ROLLBACK_APP"
+  fi
+  echo
+  echo "MailNotesAgent $EXPECTED_VERSION ist ohne Autostart installiert."
+  echo "Zum Testen die App im Finder oeffnen:"
+  echo "  $INSTALL_APP"
+  exit 0
+fi
 
 echo "LaunchAgent-Konfiguration erzeugen ..."
 # HOME sowohl fuer XML als auch fuer die sed-Ersetzung maskieren.

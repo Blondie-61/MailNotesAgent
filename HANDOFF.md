@@ -297,3 +297,7 @@ InstallAgentMac.sh prüft die App-Signatur vor Änderungen, erkennt einen manuel
 Build, hdiutil-Prüfung, schreibgeschütztes Mounten, vollständige SHA-256-Dateiprüfung, codesign --verify --deep --strict und Paketprüfung sind bestanden. Vier isolierte Shell-Tests bestanden: Erstinstallation, fehlgeschlagener Upgrade-Start mit Wiederherstellung, fehlgeschlagene Erstinstallation und belegter Port. App-Kopie und Signaturprüfung echt; TLS, launchctl und curl simuliert. Reale Installation/Autostart/TLS/Outlook stehen aus.
 
 Datei MailNotesAgent-1.2.2.1-macOS-arm64.dmg, SHA-256 a3c5372a2c44e68379d1304e6ac8ca33e0e56717f087bb1a39afce78c1b4c754. Ausgabe im Codex-outputs-Ordner dieses Chats.
+
+## macOS-Testphase ohne Autostart
+
+Auf Wunsch des Anwenders wurde der aktive LaunchAgent auf dem Mac entladen und seine plist außerhalb von Library/LaunchAgents gesichert. Der laufende Agent wurde dabei beendet. InstallAgentMac.sh installiert standardmäßig ohne LaunchAgent und ohne automatischen Start. Ein vorhandener LaunchAgent wird beim Test-Update entfernt. Optional bleibt --autostart verfügbar. Das neue DMG trägt den Zusatz -Test. Zwei zusätzliche isolierte Tests bestätigen Standardinstallation ohne Autostart und Entfernung des bisherigen Dienstes beim Update. Die bisherigen vier Tests mit explizitem --autostart bleiben erfolgreich.

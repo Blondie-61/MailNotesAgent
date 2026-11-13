@@ -53,7 +53,7 @@ else
 fi
 echo
 if [ "$result" -eq 0 ]; then
-  echo "Fertig. Bitte das MailNotes-Taskpane in Outlook neu laden."
+  echo "Fertig. Zum Testen die installierte MailNotesAgent.app im Finder starten."
 else
   echo "Installation nicht erfolgreich. Die Fehlermeldung steht oben."
 fi
@@ -74,7 +74,7 @@ Installation
 2. Installieren.command doppelklicken. Es oeffnet sich ein Terminalfenster.
 3. Bei der ersten Einrichtung kann macOS fuer das lokale HTTPS-Zertifikat
    nach einem Administrator-Kennwort fragen.
-4. Nach erfolgreicher Installation MailNotes in Outlook neu oeffnen.
+4. Die installierte App im Finder oeffnen. Danach MailNotes in Outlook neu laden.
 5. Das DMG anschliessend auswerfen.
 
 Falls macOS das nicht notarisierte Testpaket blockiert, die angezeigte
@@ -84,7 +84,8 @@ kann die Genehmigung je nach macOS-Version auch fuer die App noetig sein.
 
 Das Skript installiert fuer den angemeldeten Benutzer nach
 ~/Library/Application Support/MailNotes/Agent/MailNotesAgent.app
-und richtet den automatischen Start bei der Anmeldung ein.
+Der Agent wird in diesem Testpaket manuell gestartet.
+Optional kann das Installationsskript mit --autostart aufgerufen werden.
 Das Outlook-Add-in wird vom Agenten aus dem App-Bundle uebernommen.
 
 Die persoenliche Datenbank liegt ausserhalb des App-Bundles.
