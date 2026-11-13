@@ -92,7 +92,7 @@ begin
     ]
   );
 {$ELSE}
-  Result := '1.2.2.0';
+  Result := '1.2.2.1';
 {$ENDIF}
 end;
 

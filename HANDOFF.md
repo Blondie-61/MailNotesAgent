@@ -275,3 +275,15 @@ Delphi-Versionsfelder wurden hier nicht geändert. Win64/Release zeigt FileVersi
 BuildSetup ohne Parameter und Setup/Addin.Deploy.targets verwenden jetzt den vorhandenen PowerShell-Pruefer. Der optionale Node-Import prueft Node im PATH und meldet eine konkrete Voraussetzung. Der PowerShell-Pruefer ignoriert SMB/Finder-Metadaten wie der Node-Pruefer und der Installer-Export.
 
 In der laufenden Windows-VM wurde VerifyAddin.ps1 gegen Resources/AddIn erfolgreich ausgefuehrt. Der vollstaendige BuildSetup-Durchlauf erzeugte Output/MailNotesAgent-Setup-1.2.2.1.exe erfolgreich. Der erste Durchlauf scheiterte beim Inno-Ressourcenupdate mit EndUpdateResource (110); ein erneuter Durchlauf gelang. Die Ursache des einmaligen Dateizugriffsfehlers ist nicht geklaert. Installation und Update dieses Setups auf dem Test-PC bleiben offen.
+
+## Erneutes Laden von Markdown-Notizen am 12. November
+
+Mac-Commit ffc1ca9 entkoppelt die Vorschau beim Laden vom innerText des versteckten Editors. Der vom Agenten gelieferte Klartext wird direkt an Hervorhebung und Vorschau übergeben. Vor dem Ausblenden wird der Editor auf denselben Klartext normalisiert. In lokaler Mac-Testdatenbank und HTTP-Antwort war der Originaltext vollständig. Ein isolierter DOM-Test prüft dreifaches Laden und Editor/Vorschau-Wechsel. TypeScript, sieben Markdown-Fälle und Produktionsbuild sind bestanden. Das vollständige Paket ist nach Resources/AddIn übernommen und gegen das Mac-Paket geprüft. Der tatsächliche Outlook-Test auf Mac und Windows steht aus.
+
+## Renderdiagnose am 12. November
+
+Der Anwender bestätigt den Fehler trotz aktuellem ffc1ca9-Build; der Rohtext bleibt vollständig. Die versteckte-Editor-Korrektur hat den Fehler damit nicht behoben. Das Diagnosepaket ergänzt bei aktiviertem Debug textfreie Quell-, DOM- und Text-Fingerabdrücke sowie Strukturzahlen unmittelbar nach Rendern und im folgenden Frame. Ein Vergleich der korrekten ersten und falschen späteren Vorschau steht aus. TypeScript und Build erfolgreich. Diagnosepaket vollständig importiert.
+
+## Release-Vorbereitung am 13. November
+
+Release-Notizen und offene Freigabepunkte stehen in Documentation/Release-1.2.2.1.md. Der Vorschaufehler ist auf beiden Plattformen aktuell nicht reproduzierbar, bleibt aber ungeklärt. Native TypeScript-/Production-Prüfung, docs-Export und Paketgleichheit sind bestanden. Paket-Build-ID 632dce351ae14b240148fb72265dec1549b98d8072c03b796f3a5acfb6f875d6. BuildSetup hat das aktuelle Setup erfolgreich neu erzeugt. Prüfsummen liegen in Setup/Output/SHA256-1.2.2.1.txt und den Release-Notizen. Die zuvor in der Delphi-IDE gesetzten Versionswerte werden im Git-Stand gesichert. Finaler Windows-Update-Test dieses Artefakts und macOS-Auslieferungspaket bleiben vor Freigabe offen. Outlook war heute nicht verfügbar.
