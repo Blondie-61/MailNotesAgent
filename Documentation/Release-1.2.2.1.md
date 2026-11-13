@@ -55,3 +55,9 @@ Die folgenden Prüfsummen beziehen sich auf die am 13. November erzeugten lokale
 - MailNotesAgent-Setup-1.2.2.1.exe SHA-256 3005187302b7938e82d1e3ab7da2d311240a26040e280d872b0a9011ec5150bd
 - MailNotesAgent.exe SHA-256 2e08725a1c5331b124aefe30f4cb691e1b3bc722798deaae201eff7469d01376
 - addin-build.json SHA-256 06da0958c911d5ba139d827aa22900881ff0f3d099302958693ad21303abc31c
+
+## macOS-Testpaket
+
+Ein erstes Apple-Silicon-DMG ist erstellt und intern geprüft. Build und Installer liegen unter Resources/MacOS. Die App wurde lokal ad hoc signiert; eine Notarisierung fehlt. Die vollständigen Paketprüfsummen, App-Signatur und vier isolierte Installationsfälle wurden geprüft. Reale Installation, Zertifikatsvertrauen und Autostart auf einem Mac sind noch offen.
+
+MailNotesAgent-1.2.2.1-macOS-arm64.dmg SHA-256 a3c5372a2c44e68379d1304e6ac8ca33e0e56717f087bb1a39afce78c1b4c754

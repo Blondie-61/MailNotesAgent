@@ -287,3 +287,13 @@ Der Anwender bestätigt den Fehler trotz aktuellem ffc1ca9-Build; der Rohtext bl
 ## Release-Vorbereitung am 13. November
 
 Release-Notizen und offene Freigabepunkte stehen in Documentation/Release-1.2.2.1.md. Der Vorschaufehler ist auf beiden Plattformen aktuell nicht reproduzierbar, bleibt aber ungeklärt. Native TypeScript-/Production-Prüfung, docs-Export und Paketgleichheit sind bestanden. Paket-Build-ID 632dce351ae14b240148fb72265dec1549b98d8072c03b796f3a5acfb6f875d6. BuildSetup hat das aktuelle Setup erfolgreich neu erzeugt. Prüfsummen liegen in Setup/Output/SHA256-1.2.2.1.txt und den Release-Notizen. Die zuvor in der Delphi-IDE gesetzten Versionswerte werden im Git-Stand gesichert. Finaler Windows-Update-Test dieses Artefakts und macOS-Auslieferungspaket bleiben vor Freigabe offen. Outlook war heute nicht verfügbar.
+
+## Erstes macOS-DMG am 13. November
+
+Resources/MacOS/BuildDmg.sh erstellt ein Apple-Silicon-DMG aus App-Bundle, geprüftem Add-in-Paket und leerer Schema-7-Vorlage. Aufruf mit bash und drei Argumenten: App-Bundle, Add-in-Ordner, Ausgabe.dmg. Enthalten sind Installieren.command, InstallAgentMac.sh, LaunchAgent-Vorlage, Anleitung und vollständige Datei-Prüfsummen. Das zusammengestellte Bundle ist lokal ad hoc signiert, das DMG nicht notarisiert. Es ist für einen lokalen Test vorgesehen.
+
+InstallAgentMac.sh prüft die App-Signatur vor Änderungen, erkennt einen manuell belegten Port und prüft nach dem Start sowohl Version als auch ausführbaren Pfad. Bei fehlgeschlagenem App-Austausch oder Start werden App und LaunchAgent-Datei sowie ein zuvor geladener Autostart wiederhergestellt. Neue TLS-Zertifikate werden bei Bedarf weiterhin mit Benutzerfreigabe eingerichtet. Die App-Rollbacktests ersetzen keinen echten Zertifikats-/Schlüsselbundtest.
+
+Build, hdiutil-Prüfung, schreibgeschütztes Mounten, vollständige SHA-256-Dateiprüfung, codesign --verify --deep --strict und Paketprüfung sind bestanden. Vier isolierte Shell-Tests bestanden: Erstinstallation, fehlgeschlagener Upgrade-Start mit Wiederherstellung, fehlgeschlagene Erstinstallation und belegter Port. App-Kopie und Signaturprüfung echt; TLS, launchctl und curl simuliert. Reale Installation/Autostart/TLS/Outlook stehen aus.
+
+Datei MailNotesAgent-1.2.2.1-macOS-arm64.dmg, SHA-256 a3c5372a2c44e68379d1304e6ac8ca33e0e56717f087bb1a39afce78c1b4c754. Ausgabe im Codex-outputs-Ordner dieses Chats.

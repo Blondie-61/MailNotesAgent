@@ -50,6 +50,10 @@ if [ ! -f "$SOURCE_APP/Contents/Resources/Addin/addin-build.json" ]; then
   exit 4
 fi
 
+# Die ausgelieferte App muss vor jeder Aenderung vollstaendig versiegelt sein.
+/usr/bin/codesign --verify --deep --strict "$SOURCE_APP"
+EXPECTED_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$SOURCE_APP/Contents/Info.plist")
+
 tls_pair_matches() {
   local cert_modulus
   local key_modulus
@@ -167,17 +171,26 @@ EOF
 echo "MailNotesAgent für macOS installieren"
 echo
 
-# Bereits geladenen LaunchAgent sauber entladen.
+STAGING_APP="$INSTALL_APP.staging"
+ROLLBACK_APP="$INSTALL_APP.rollback"
+if [ -e "$STAGING_APP" ] || [ -e "$ROLLBACK_APP" ]; then
+  echo "Fehler: Staging/Rollback einer vorigen Installation vorhanden."
+  echo "Bitte diese Installation zuerst pruefen:"
+  echo "  $INSTALL_APP"
+  exit 6
+fi
+
+WAS_LOADED=0
 if launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1; then
-  echo "Vorhandenen LaunchAgent stoppen ..."
-  launchctl bootout "gui/$(id -u)" "$PLIST_TARGET" >/dev/null 2>&1 || true
+  WAS_LOADED=1
+elif /usr/sbin/lsof -nP -iTCP:48571 -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "Fehler: Port 48571 wird bereits verwendet."
+  echo "Bitte den manuell gestarteten MailNotes-Agenten zuerst beenden."
+  exit 6
 fi
 
 echo "Installationsverzeichnisse anlegen ..."
-mkdir -p "$INSTALL_DIR"
-mkdir -p "$LAUNCH_AGENTS_DIR"
-mkdir -p "$HOME/Library/Logs"
-mkdir -p "$TLS_DIR"
+mkdir -p "$INSTALL_DIR" "$LAUNCH_AGENTS_DIR" "$HOME/Library/Logs" "$TLS_DIR"
 
 if tls_is_ready; then
   echo "Vorhandenes MailNotes-TLS-Zertifikat ist gültig und vertrauenswürdig."
@@ -186,55 +199,105 @@ else
   create_tls_material
 fi
 
-echo "MailNotesAgent.app installieren ..."
-STAGING_APP="$INSTALL_APP.staging"
-ROLLBACK_APP="$INSTALL_APP.rollback"
-if [ -e "$STAGING_APP" ] || [ -e "$ROLLBACK_APP" ]; then
-  echo "Fehler: Staging/Rollback einer vorigen Installation vorhanden."
+# Vor dem Stoppen der laufenden Installation die vollstaendige Kopie pruefen.
+echo "App-Bundle vorbereiten ..."
+/usr/bin/ditto "$SOURCE_APP" "$STAGING_APP"
+if ! /usr/bin/codesign --verify --deep --strict "$STAGING_APP"; then
+  rm -rf "$STAGING_APP"
   exit 6
 fi
-/usr/bin/ditto "$SOURCE_APP" "$STAGING_APP"
+
+STATE_DIR="$(mktemp -d)"
+HAD_PLIST=0
+if [ -f "$PLIST_TARGET" ]; then
+  cp "$PLIST_TARGET" "$STATE_DIR/previous.plist"
+  HAD_PLIST=1
+fi
+OLD_MOVED=0
+NEW_INSTALLED=0
+LAUNCH_CHANGED=0
+
+rollback_installation() {
+  local result=$?
+  trap - EXIT
+  if [ "$result" -ne 0 ]; then
+    echo "Installation fehlgeschlagen. Vorigen Stand wiederherstellen ..."
+    if [ "$LAUNCH_CHANGED" -eq 1 ]; then
+      launchctl bootout "gui/$(id -u)" "$PLIST_TARGET" >/dev/null 2>&1 || true
+    fi
+    if [ "$NEW_INSTALLED" -eq 1 ]; then
+      rm -rf "$INSTALL_APP"
+    fi
+    if [ "$OLD_MOVED" -eq 1 ]; then
+      mv "$ROLLBACK_APP" "$INSTALL_APP" || {
+        echo "Fehler: Manuelle Wiederherstellung aus $ROLLBACK_APP erforderlich."
+        exit "$result"
+      }
+    fi
+    if [ "$LAUNCH_CHANGED" -eq 1 ]; then
+      if [ "$HAD_PLIST" -eq 1 ]; then
+        cp "$STATE_DIR/previous.plist" "$PLIST_TARGET"
+      else
+        rm -f "$PLIST_TARGET"
+      fi
+      if [ "$WAS_LOADED" -eq 1 ]; then
+        launchctl bootstrap "gui/$(id -u)" "$PLIST_TARGET" || true
+      fi
+    fi
+    rm -rf "$STAGING_APP"
+  fi
+  rm -rf "$STATE_DIR"
+  exit "$result"
+}
+trap rollback_installation EXIT
+
+if [ "$WAS_LOADED" -eq 1 ]; then
+  echo "Vorhandenen LaunchAgent stoppen ..."
+  LAUNCH_CHANGED=1
+  launchctl bootout "gui/$(id -u)" "$PLIST_TARGET"
+fi
+
+echo "MailNotesAgent.app installieren ..."
 if [ -d "$INSTALL_APP" ]; then
   mv "$INSTALL_APP" "$ROLLBACK_APP"
+  OLD_MOVED=1
 fi
-if ! mv "$STAGING_APP" "$INSTALL_APP"; then
-  if [ -d "$ROLLBACK_APP" ]; then
-    mv "$ROLLBACK_APP" "$INSTALL_APP"
-  fi
-  exit 6
-fi
+mv "$STAGING_APP" "$INSTALL_APP"
+NEW_INSTALLED=1
 
 echo "LaunchAgent-Konfiguration erzeugen ..."
-ESCAPED_HOME=$(printf '%s\n' "$HOME" | sed 's/[&|]/\\&/g')
+# HOME sowohl fuer XML als auch fuer die sed-Ersetzung maskieren.
+XML_HOME=$(printf '%s' "$HOME" | sed 's/\&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
+ESCAPED_HOME=$(printf '%s' "$XML_HOME" | sed 's/[&|\\]/\\&/g')
+LAUNCH_CHANGED=1
 sed "s|@@HOME@@|$ESCAPED_HOME|g" "$PLIST_TEMPLATE" > "$PLIST_TARGET"
-
-echo "plist prüfen ..."
 plutil -lint "$PLIST_TARGET"
 
 echo "LaunchAgent laden ..."
 launchctl bootstrap "gui/$(id -u)" "$PLIST_TARGET"
 
-sleep 1
-
-echo
-echo "Status:"
-if pgrep -fl MailNotesAgent >/dev/null 2>&1; then
-  pgrep -fl MailNotesAgent
-else
-  echo "WARNUNG: MailNotesAgent-Prozess wurde nicht gefunden."
-fi
-
-echo
-if curl --silent --fail --max-time 3 https://localhost:48571/ping; then
-  if [ -d "$ROLLBACK_APP" ]; then
-    rm -rf "$ROLLBACK_APP"
+echo "Start und HTTPS-Verbindung pruefen ..."
+READY=0
+for attempt in $(seq 1 15); do
+  if curl --silent --show-error --fail --max-time 2 https://localhost:48571/version > "$STATE_DIR/version.json" 2>/dev/null; then
+    RUNNING_VERSION=$(plutil -extract version raw -o - "$STATE_DIR/version.json" 2>/dev/null || true)
+    RUNNING_PATH=$(plutil -extract agentPath raw -o - "$STATE_DIR/version.json" 2>/dev/null || true)
+    if [ "$RUNNING_VERSION" = "$EXPECTED_VERSION" ] &&
+       [ "$RUNNING_PATH" = "$INSTALL_APP/Contents/MacOS/MailNotesAgent" ]; then
+      READY=1
+      break
+    fi
   fi
-  echo
-  echo "MailNotesAgent wurde erfolgreich installiert und gestartet."
-else
-  echo
-  echo "WARNUNG: MailNotesAgent antwortet noch nicht per HTTPS auf Port 48571."
-  echo "Fehlerprotokoll:"
-  echo "  $HOME/Library/Logs/MailNotesAgent-error.log"
+  sleep 1
+done
+if [ "$READY" -ne 1 ]; then
+  echo "Fehler: Der installierte Agent antwortet nicht mit der erwarteten Version."
+  echo "Fehlerprotokoll: $HOME/Library/Logs/MailNotesAgent-error.log"
   exit 5
 fi
+
+if [ "$OLD_MOVED" -eq 1 ]; then
+  rm -rf "$ROLLBACK_APP"
+fi
+echo
+echo "MailNotesAgent $EXPECTED_VERSION wurde erfolgreich installiert und gestartet."
