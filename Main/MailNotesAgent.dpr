@@ -43,6 +43,7 @@ uses
   uRepairQueue in 'uRepairQueue.pas',
   uHttpServer in 'uHttpServer.pas',
   uBackupScheduler in 'uBackupScheduler.pas',
+  uReminderScheduler in 'uReminderScheduler.pas',
   uSingleInstance in 'uSingleInstance.pas',
   uTrayIconResources in 'uTrayIconResources.pas',
   uStatusLogo in 'uStatusLogo.pas',

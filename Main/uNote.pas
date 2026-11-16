@@ -7,6 +7,8 @@ type
   public
     ID: Integer;
     Revision: Int64;
+    ReminderUTC: string;
+    CompletedUTC: string;
     MailNotesID: string;
 
     ItemID: string;

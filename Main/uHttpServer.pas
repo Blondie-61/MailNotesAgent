@@ -5,6 +5,7 @@ interface
 uses
   System.SysUtils,
   System.Classes,
+  System.DateUtils,
   System.IOUtils,
   System.NetEncoding,
   System.JSON,
@@ -110,6 +111,7 @@ type
     constructor Create(ADatabase: TDatabase);
     destructor Destroy; override;
 
+    procedure NotifyDueReminders(const Notify: TProc<Integer>);
     procedure Start;
     procedure Stop;
     function ChangeDatabasePath(const APath: string; out AMode: string): string;
@@ -121,6 +123,16 @@ type
 
 implementation
 
+
+procedure THttpServer.NotifyDueReminders(const Notify: TProc<Integer>);
+begin
+  TMonitor.Enter(FDatabaseLock);
+  try
+    FDatabase.NotifyDueReminders(Notify);
+  finally
+    TMonitor.Exit(FDatabaseLock);
+  end;
+end;
 
 constructor THttpServer.Create(ADatabase: TDatabase);
 begin
@@ -460,6 +472,8 @@ begin
     HandleResolve(ARequestInfo, AResponseInfo)
   else if SameText(ARequestInfo.Document, '/backlinks') then
     HandleBacklinks(ARequestInfo, AResponseInfo)
+  else if SameText(ARequestInfo.Document, '/reminders/count') then
+    SendJson(AResponseInfo, '{"count":' + FDatabase.CountDueNotes.ToString + '}')
   else if SameText(ARequestInfo.Document, '/search') then
     HandleSearch(ARequestInfo, AResponseInfo)
   else if SameText(ARequestInfo.Document, '/favorites') then
@@ -507,7 +521,7 @@ begin
     AResponseInfo,
     '{' +
     '"name":"MailNotesAgent",' +
-    '"capabilities":{"noteImages":true},' +
+    '"capabilities":{"noteImages":true,"noteWorkflow":true},' +
     '"debugEnabled":' + LowerCase(BoolToStr(TMNDiagnostics.DebugEnabled, True)) + ',' +
     '"version":"' + JsonEscape(TAppInfo.Version) + '",' +
     '"platform":"' + JsonEscape(TAppInfo.PlatformName) + '",' +
@@ -753,6 +767,8 @@ begin
       '{' +
       '"found":true,' +
       '"revision":' + Note.Revision.ToString + ',' +
+      '"reminderUtc":"' + JsonEscape(Note.ReminderUTC) + '",' +
+      '"completedUtc":"' + JsonEscape(Note.CompletedUTC) + '",' +
       '"images":' + NoteImagesJson(Note.ID) + ',' +
       '"mailNotesId":"' + JsonEscape(Note.MailNotesID) + '",' +
       '"gmlActive":' + LowerCase(BoolToStr(GMLActive, True)) + ',' +
@@ -929,6 +945,20 @@ begin
           Note.Content := ReadString('content');
         if (RequestObject = nil) or (RequestObject.GetValue('links') <> nil) then
           Note.Links := ReadString('links');
+
+        if RequestObject <> nil then
+          for var FieldName in TArray<string>.Create('reminderUtc', 'completedUtc') do
+            if RequestObject.GetValue(FieldName) <> nil then
+            begin
+              var Stamp := ReadString(FieldName);
+              var ParsedDate: TDateTime;
+              if (Stamp <> '') and not TryISO8601ToDate(Stamp, ParsedDate, True) then
+                raise EInvalidNoteImage.Create('invalid_' + FieldName);
+              if Stamp <> '' then
+                Stamp := DateToISO8601(ParsedDate, True);
+              if FieldName = 'reminderUtc' then Note.ReminderUTC := Stamp
+              else Note.CompletedUTC := Stamp;
+            end;
 
         // GML ist optional und kontoabhaengig. Ein Fehlschlag darf das Speichern
         // und den vorhandenen SRL-Weg niemals blockieren.
@@ -1371,7 +1401,8 @@ begin
   if (SearchText = '') and (Length(TagNormalizedNames) = 0) and
      (Length(PersonNormalizedNames) = 0) and
      not (SameText(ARequestInfo.Params.Values['favorite'], 'true') or
-          (ARequestInfo.Params.Values['favorite'] = '1')) then
+          (ARequestInfo.Params.Values['favorite'] = '1')) and
+     (ARequestInfo.Params.Values['due'] <> '1') then
   begin
     SendJson(AResponseInfo, '{"items":[],"count":0}');
     Exit;
@@ -1381,7 +1412,8 @@ begin
   FavoriteOnly := SameText(ARequestInfo.Params.Values['favorite'], 'true') or
                   (ARequestInfo.Params.Values['favorite'] = '1');
   Items := FDatabase.SearchNotes(
-    SearchText, MaxResults, FavoriteOnly, TagNormalizedNames, PersonNormalizedNames
+    SearchText, MaxResults, FavoriteOnly, TagNormalizedNames, PersonNormalizedNames,
+    ARequestInfo.Params.Values['due'] = '1'
   );
   Json := TStringBuilder.Create;
   try

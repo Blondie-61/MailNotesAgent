@@ -58,3 +58,6 @@ PRAGMA integrity_check;
 
 -- Fremdschluesselpruefung: darf keine Zeilen liefern
 PRAGMA foreign_key_check;
+
+-- Wiedervorlage und Erledigt-Status ab Schema 8
+SELECT ID, ReminderUTC, CompletedUTC, ReminderNotifiedUTC FROM Note LIMIT 10;

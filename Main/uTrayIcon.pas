@@ -9,7 +9,7 @@ uses
   Winapi.ActiveX,
   uUpdater,
   uHttpServer,
-  uBackupScheduler;
+  uBackupScheduler, uReminderScheduler;
 
 function SetMenuDefaultItem(
   hMenu: HMENU;
@@ -24,7 +24,7 @@ uses
   Macapi.Foundation,
   Macapi.ObjectiveC,
   uHttpServer,
-  uBackupScheduler;
+  uBackupScheduler, uReminderScheduler;
 {$ENDIF}
 
 type
@@ -88,6 +88,7 @@ type
 
   TTrayIcon = class
   private
+    FReminderScheduler: TReminderScheduler;
     FState: TTrayState;
     FRestartRequested: Boolean;
 {$IF Defined(MSWINDOWS)}
@@ -188,6 +189,7 @@ type
 {$ENDIF}
     destructor Destroy; override;
 
+    procedure ShowReminderNotification(const Count: Integer);
     procedure SetState(const State: TTrayState);
     procedure Run;
     property RestartRequested: Boolean read FRestartRequested;
@@ -217,6 +219,49 @@ uses
   uAppInfo
 {$ENDIF}
   ;
+
+procedure TTrayIcon.ShowReminderNotification(const Count: Integer);
+var
+  Text: string;
+{$IF Defined(MSWINDOWS)}
+  Data: TNotifyIconData;
+{$ELSEIF Defined(MACOS)}
+  Notification: NSUserNotification;
+  Pool: NSAutoreleasePool;
+{$ENDIF}
+begin
+  Text := IntToStr(Count) + ' Wiedervorlagen sind f' + WideChar($00E4) + 'llig.';
+  if Count = 1 then Text := 'Eine Wiedervorlage ist f' + WideChar($00E4) + 'llig.';
+{$IF Defined(MSWINDOWS)}
+  FillChar(Data, SizeOf(Data), 0);
+  Data.cbSize := SizeOf(Data);
+  Data.Wnd := FWindowHandle;
+  Data.uID := 1;
+  Data.uFlags := NIF_INFO;
+  Data.dwInfoFlags := NIIF_INFO;
+  StrPLCopy(Data.szInfoTitle, 'MailNotes', Length(Data.szInfoTitle) - 1);
+  StrPLCopy(Data.szInfo, Text, Length(Data.szInfo) - 1);
+  if not Shell_NotifyIcon(NIM_MODIFY, @Data) then
+    RaiseLastOSError;
+{$ELSEIF Defined(MACOS)}
+  Pool := TNSAutoreleasePool.Create;
+  try
+    Notification := TNSUserNotification.Create;
+    try
+      Notification.setTitle(StrToNSStr('MailNotes'));
+      Notification.setInformativeText(StrToNSStr(Text));
+      TNSUserNotificationCenter.Wrap(
+        TNSUserNotificationCenter.OCClass.defaultUserNotificationCenter).deliverNotification(Notification);
+    finally
+      Notification.release;
+    end;
+  finally
+    Pool.release;
+  end;
+{$ENDIF}
+end;
+
+
 
 {$IF Defined(MSWINDOWS)}
 
@@ -277,6 +322,12 @@ begin
 //  FBackupScheduler := TBackupScheduler.Create(FHttpServer);
   FBackupScheduler := TBackupScheduler.Create(FHttpServer);
   FBackupScheduler.Start;
+  FReminderScheduler := TReminderScheduler.Create(FHttpServer,
+    procedure(Count: Integer)
+    begin
+      ShowReminderNotification(Count);
+    end);
+  FReminderScheduler.Start;
 
   // Die erste Prüfung erfolgt bewusst leicht verzögert, damit der Agent
   // Die erste Prüfung erfolgt bewusst leicht verzögert, damit der Agent
@@ -287,6 +338,7 @@ end;
 
 destructor TTrayIcon.Destroy;
 begin
+  FReminderScheduler.Free;
   if FBackupScheduler <> nil then
   begin
     FBackupScheduler.Stop;
@@ -1533,11 +1585,18 @@ begin
   CreateStatusItem;
   FBackupScheduler := TBackupScheduler.Create(FHttpServer);
   FBackupScheduler.Start;
+  FReminderScheduler := TReminderScheduler.Create(FHttpServer,
+    procedure(Count: Integer)
+    begin
+      ShowReminderNotification(Count);
+    end);
+  FReminderScheduler.Start;
 end;
 
 
 destructor TTrayIcon.Destroy;
 begin
+  FReminderScheduler.Free;
   CloseRestoreResult;
   if FBackupScheduler <> nil then
   begin
@@ -2460,6 +2519,7 @@ end;
 
 destructor TTrayIcon.Destroy;
 begin
+  FReminderScheduler.Free;
   inherited;
 end;
 

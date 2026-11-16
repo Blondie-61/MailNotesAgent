@@ -12,7 +12,7 @@ CREATE TABLE SchemaInfo
 );
 
 INSERT INTO SchemaInfo (SchemaVersion, CreatedUTC)
-VALUES (7, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+VALUES (8, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
 
 -- Fachliche Identitaet einer E-Mail in MailNotes.
 -- MailNotesID bleibt stabil; Outlook-IDs duerfen sich beim Verschieben aendern.
@@ -80,6 +80,9 @@ CREATE TABLE Note
     IsDeleted   INTEGER NOT NULL DEFAULT 0,
     DeletedUTC  TEXT,
     Revision    INTEGER NOT NULL DEFAULT 1,
+    ReminderUTC TEXT NOT NULL DEFAULT '',
+    CompletedUTC TEXT NOT NULL DEFAULT '',
+    ReminderNotifiedUTC TEXT NOT NULL DEFAULT '',
 
     FOREIGN KEY (MailNotesID)
         REFERENCES Mail(MailNotesID)
@@ -299,3 +302,5 @@ CREATE VIRTUAL TABLE MailNoteSearch USING fts5
     SenderAddress,
     tokenize = 'unicode61 remove_diacritics 2'
 );
+
+CREATE INDEX IX_Note_ReminderUTC ON Note(ReminderUTC) WHERE IsDeleted = 0 AND CompletedUTC = '';
