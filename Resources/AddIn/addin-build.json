@@ -2,8 +2,8 @@
   "version": 1,
   "files": [
     {
-      "path": "aa2dca20c464f7b7c1e7.css",
-      "sha256": "53f06923f412cebdd4627841c10037b2b5f857bf919439f67525b379827f87b9"
+      "path": "a71e4d3a5a6c4e3a74d2.css",
+      "sha256": "6f32603cb1eb213c06a3c9e2bfc8e04ae1f953dd3eab3b29731d59508fa7c5be"
     },
     {
       "path": "assets/icon-128.png",
@@ -47,12 +47,12 @@
     },
     {
       "path": "taskpane.html",
-      "sha256": "4fa980ebc45ee2b608b0c502c120548fb63ee010d1c2f408218d986b57b26a49"
+      "sha256": "78539fe4614ce193c3adc12cb7fd3c09f35dc0a12d8e4a7abc6d400b2b5969b9"
     },
     {
       "path": "taskpane.js",
-      "sha256": "f193f03373b96603353d90159de9394e1c6a4c02fb7e44ef97d242a485d19c60"
+      "sha256": "add7ddc8b81fb13b4799ade7d8568666d5ce135cca69e1a343c7caab590bad89"
     }
   ],
-  "buildId": "632dce351ae14b240148fb72265dec1549b98d8072c03b796f3a5acfb6f875d6"
+  "buildId": "d98779c664139d352b6b90f6011915e9da42937a6c9f7fc22e3f64f089ec6a5b"
 }

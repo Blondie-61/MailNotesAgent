@@ -1507,3 +1507,61 @@ button:disabled {
 .note-md-link-actions button:last-child { background: #e8f0ff; }
 
 .note-markdown-image { display: block; max-width: 100%; height: auto; }
+
+.note-workflow-button {
+    width: 26px;
+    height: 28px;
+    border: 0;
+    border-radius: 6px;
+    padding: 0;
+    background: transparent;
+    color: #8e8e93;
+    font-size: 21px;
+    cursor: pointer;
+}
+.note-workflow-button.active { color: #1769aa; }
+.note-workflow-button:disabled { opacity: .45; cursor: default; }
+.note-workflow-status {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    margin: -7px 0 10px;
+}
+.note-workflow-status button {
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: #6e6e73;
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    text-align: left;
+}
+.note-workflow-status .overdue, .note-workflow-button.overdue { color: #a56914; }
+.note-workflow-status[hidden], .note-workflow-status button[hidden],
+.note-workflow-button[hidden], .due-filter-button[hidden] { display: none; }
+.due-filter-button {
+    border: 1px solid transparent;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: #6e6e73;
+    background: #f2f2f4;
+    cursor: pointer;
+}
+.due-filter-button.active { color: #a56914; background: #fff5e4; border-color: #e6c994; }
+.note-reminder-dialog {
+    width: min(340px, calc(100% - 24px));
+    padding: 20px;
+    border: 1px solid #c7c7cc;
+    border-radius: 12px;
+    font: inherit;
+    color: #1d1d1f;
+    background: #fff;
+}
+.note-reminder-dialog::backdrop { background: #0004; }
+.note-reminder-dialog h2 { margin: 0 0 16px; font-size: 18px; }
+.note-reminder-dialog label { display: block; font-size: 13px; }
+.note-reminder-dialog input { display: block; width: 100%; margin-top: 6px; padding: 8px; font: inherit; }
+.note-reminder-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.note-reminder-actions button { padding: 7px 10px; font: inherit; cursor: pointer; }
