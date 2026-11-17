@@ -2,10 +2,6 @@
   "version": 1,
   "files": [
     {
-      "path": "a71e4d3a5a6c4e3a74d2.css",
-      "sha256": "6f32603cb1eb213c06a3c9e2bfc8e04ae1f953dd3eab3b29731d59508fa7c5be"
-    },
-    {
       "path": "assets/icon-128.png",
       "sha256": "4af9ae942fd0df90691e3c7475bf0417be98e49571ac54d8f6170fa3fd3773f6"
     },
@@ -30,6 +26,10 @@
       "sha256": "f9858ffa0af9082454c10cfe675e42fb04751656c8f9318c81e57add529597a2"
     },
     {
+      "path": "b95ab726ddd24cdf4b35.css",
+      "sha256": "52b3603c42ab34eb064525fab8fceb3ee4dc466770fe4af7aa1363ee6902e84f"
+    },
+    {
       "path": "commands.html",
       "sha256": "fe26a59ffb1d4e73a4e4896aefed714b8dd50015532e44938738136a33b3661f"
     },
@@ -47,12 +47,12 @@
     },
     {
       "path": "taskpane.html",
-      "sha256": "78539fe4614ce193c3adc12cb7fd3c09f35dc0a12d8e4a7abc6d400b2b5969b9"
+      "sha256": "39b032c669ff58cf2b65b8e0cd014ecea0f7c76aa5bab9af24450d475cc5c5fe"
     },
     {
       "path": "taskpane.js",
-      "sha256": "add7ddc8b81fb13b4799ade7d8568666d5ce135cca69e1a343c7caab590bad89"
+      "sha256": "f42fbe0c241d746b202084d95b979f7eb29b49d5292a669616ea948653967ddd"
     }
   ],
-  "buildId": "d98779c664139d352b6b90f6011915e9da42937a6c9f7fc22e3f64f089ec6a5b"
+  "buildId": "59243e470bd9ed2266e01c5eae7147670eb838663933e16b0606a99b5f5a3272"
 }
