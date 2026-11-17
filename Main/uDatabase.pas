@@ -4,6 +4,7 @@ interface
 
 uses
   System.SysUtils,
+  System.StrUtils,
   System.Classes,
   System.DateUtils,
   System.IOUtils,
@@ -83,6 +84,7 @@ type
     function GetNoteImage(const MailNotesID, ImageID: string;
       out Image: TNoteImage): Boolean;
     function GetNoteImages(const NoteID: Integer): TArray<TNoteImage>;
+    function CountReminders: Integer;
     function CountDueNotes: Integer;
     procedure NotifyDueReminders(const Notify: TProc<Integer>);
     procedure RefreshMailIdentity(Note: TNote);
@@ -104,7 +106,8 @@ type
       const FavoriteOnly: Boolean;
       const TagNormalizedNames: TArray<string>;
       const PersonNormalizedNames: TArray<string>;
-      const DueOnly: Boolean = False
+      const DueOnly: Boolean = False;
+      const RemindersOnly: Boolean = False
     ): TObjectList<TNote>;
     function GetFavorites(
       const MaxResults: Integer = 100
@@ -764,10 +767,16 @@ begin
   end;
 end;
 
+function TDatabase.CountReminders: Integer;
+begin
+  Result := FConnection.ExecSQLScalar(
+    'SELECT COUNT(*) FROM Note WHERE IsDeleted = 0 AND ReminderUTC <> ''''');
+end;
+
 function TDatabase.CountDueNotes: Integer;
 begin
   Result := FConnection.ExecSQLScalar(
-    'SELECT COUNT(*) FROM Note WHERE IsDeleted = 0 AND CompletedUTC = '''' ' +
+    'SELECT COUNT(*) FROM Note WHERE IsDeleted = 0 ' +
     'AND ReminderUTC <> '''' AND ReminderUTC <= :NowUTC', [GetCurrentUTC]);
 end;
 
@@ -780,7 +789,7 @@ begin
   FConnection.StartTransaction;
   try
     Count := FConnection.ExecSQLScalar(
-      'SELECT COUNT(*) FROM Note WHERE IsDeleted = 0 AND CompletedUTC = '''' ' +
+      'SELECT COUNT(*) FROM Note WHERE IsDeleted = 0 ' +
       'AND ReminderUTC <> '''' AND ReminderUTC <= :NowUTC AND ReminderNotifiedUTC <> ReminderUTC',
       [NowUTC]);
     if Count > 0 then
@@ -788,7 +797,7 @@ begin
       Notify(Count);
       FConnection.ExecSQL(
         'UPDATE Note SET ReminderNotifiedUTC = ReminderUTC WHERE IsDeleted = 0 ' +
-        'AND CompletedUTC = '''' AND ReminderUTC <> '''' AND ReminderUTC <= :NowUTC ' +
+        'AND ReminderUTC <> '''' AND ReminderUTC <= :NowUTC ' +
         'AND ReminderNotifiedUTC <> ReminderUTC', [NowUTC]);
     end;
     FConnection.Commit;
@@ -1537,7 +1546,8 @@ function TDatabase.SearchNotes(
   const FavoriteOnly: Boolean;
   const TagNormalizedNames: TArray<string>;
   const PersonNormalizedNames: TArray<string>;
-  const DueOnly: Boolean
+  const DueOnly: Boolean;
+  const RemindersOnly: Boolean
 ): TObjectList<TNote>;
 var
   Query: TFDQuery;
@@ -1557,7 +1567,7 @@ begin
   SearchExpression := BuildSearchExpression(SearchText);
 
   if (SearchExpression = '') and (Length(TagNormalizedNames) = 0) and
-     (Length(PersonNormalizedNames) = 0) and not FavoriteOnly and not DueOnly then
+     (Length(PersonNormalizedNames) = 0) and not FavoriteOnly and not DueOnly and not RemindersOnly then
     Exit;
 
   ResultLimit := MaxResults;
@@ -1570,9 +1580,10 @@ begin
   if FavoriteOnly then
     FavoriteClause := 'AND N.IsFavorite = 1 ';
 
+  if DueOnly or RemindersOnly then
+    FavoriteClause := FavoriteClause + 'AND N.ReminderUTC <> '''' ';
   if DueOnly then
-    FavoriteClause := FavoriteClause +
-      'AND N.ReminderUTC <> '''' AND N.CompletedUTC = '''' AND N.ReminderUTC <= :DueUTC ';
+    FavoriteClause := FavoriteClause + 'AND N.ReminderUTC <= :DueUTC ';
   TagClause := '';
   for TagIndex := 0 to High(TagNormalizedNames) do
   begin
@@ -1611,7 +1622,7 @@ begin
     begin
       Query.SQL.Text :=
         'SELECT M.MailNotesID, M.ItemID, M.InternetMessageID, M.Subject, ' +
-        ' M.SenderName, M.SenderAddress, M.ReceivedUTC, N.Content, N.ModifiedUTC, ' +
+        ' M.SenderName, M.SenderAddress, M.ReceivedUTC, N.Content, N.ModifiedUTC, N.ReminderUTC, N.CompletedUTC, ' +
         ' snippet(MailNoteSearch, 1, ''['', '']'', '' … '', 18) AS SearchSnippet, ' +
         ' bm25(MailNoteSearch, 0.0, 7.0, 4.0, 2.0, 2.0) AS SearchRank ' +
         'FROM MailNoteSearch ' +
@@ -1629,14 +1640,15 @@ begin
     begin
       Query.SQL.Text :=
         'SELECT M.MailNotesID, M.ItemID, M.InternetMessageID, M.Subject, ' +
-        ' M.SenderName, M.SenderAddress, M.ReceivedUTC, N.Content, N.ModifiedUTC ' +
+        ' M.SenderName, M.SenderAddress, M.ReceivedUTC, N.Content, N.ModifiedUTC, N.ReminderUTC, N.CompletedUTC ' +
         'FROM Note N ' +
         'JOIN Mail M ON M.MailNotesID = N.MailNotesID ' +
         'WHERE N.IsDeleted = 0 ' +
         FavoriteClause +
         TagClause +
         PersonClause +
-        'ORDER BY N.ModifiedUTC DESC ' +
+        'ORDER BY ' +
+        IfThen(RemindersOnly, 'N.ReminderUTC, ', '') + 'N.ModifiedUTC DESC ' +
         'LIMIT :ResultLimit';
     end;
 
@@ -1669,6 +1681,8 @@ begin
       Note.MailDate := Query.FieldByName('ReceivedUTC').AsString;
       Note.Content := Query.FieldByName('Content').AsWideString;
       Note.ModifiedAt := Query.FieldByName('ModifiedUTC').AsString;
+      Note.ReminderUTC := Query.FieldByName('ReminderUTC').AsString;
+      Note.CompletedUTC := Query.FieldByName('CompletedUTC').AsString;
 
       if SearchExpression <> '' then
       begin
@@ -2096,7 +2110,7 @@ begin
         ' ModifiedUTC = excluded.ModifiedUTC, ' +
         ' IsFavorite = excluded.IsFavorite, ' +
         ' ReminderNotifiedUTC = CASE WHEN Note.ReminderUTC <> excluded.ReminderUTC ' +
-        ' OR (Note.CompletedUTC <> '''' AND excluded.CompletedUTC = '''') THEN '''' ELSE Note.ReminderNotifiedUTC END, ' +
+        ' THEN '''' ELSE Note.ReminderNotifiedUTC END, ' +
         ' ReminderUTC = excluded.ReminderUTC, CompletedUTC = excluded.CompletedUTC, ' +
         ' IsDeleted = 0, DeletedUTC = NULL, Revision = Note.Revision + 1';
 

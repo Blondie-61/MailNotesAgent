@@ -59,7 +59,12 @@ begin
       try
         N.CompletedUTC := '2026-11-16T10:00:00Z';
         DB.Save(N, N.Revision, nil);
-        Check(DB.CountDueNotes = 0, 'Completed note is not due');
+        Check(DB.CountDueNotes = 1, 'Completion must not affect WVL');
+        Check(DB.CountReminders = 1, 'Completion must not affect WVL count');
+        N.ReminderUTC := '1999-01-01T10:00:00Z';
+        DB.Save(N, N.Revision, nil);
+        DB.NotifyDueReminders(procedure(Count: Integer) begin Inc(Notifications, Count); end);
+        Check(Notifications = 2, 'Completed status must not suppress a new reminder');
         Conflict := False;
         try DB.Save(Stale, Stale.Revision, nil);
         except on E: ENoteImageConflict do Conflict := True; end;
@@ -69,7 +74,7 @@ begin
       finally Stale.Free; N.Free; end;
       Check(DB.CountDueNotes = 1, 'Reopened note is due');
       DB.NotifyDueReminders(procedure(Count: Integer) begin Inc(Notifications, Count); end);
-      Check(Notifications = 2, 'Reopening rearms notification');
+      Check(Notifications = 2, 'Completion toggle must not rearm notification');
       BackupFile := DB.CreateBackup(TPath.Combine(Folder, 'Backup'), 0);
       N := DB.FindByMailNotesID(ID);
       try
@@ -77,6 +82,7 @@ begin
         DB.Save(N, N.Revision, nil);
       finally N.Free; end;
       Check(DB.CountDueNotes = 0, 'Future reminder not due');
+      Check(DB.CountReminders = 1, 'Future reminder must remain counted');
       DB.RestoreBackup(BackupFile);
       Check(DB.CountDueNotes = 1, 'Restore keeps reminder');
       DB.NotifyDueReminders(procedure(Count: Integer) begin Inc(Notifications, Count); end);

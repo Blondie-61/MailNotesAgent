@@ -473,7 +473,8 @@ begin
   else if SameText(ARequestInfo.Document, '/backlinks') then
     HandleBacklinks(ARequestInfo, AResponseInfo)
   else if SameText(ARequestInfo.Document, '/reminders/count') then
-    SendJson(AResponseInfo, '{"count":' + FDatabase.CountDueNotes.ToString + '}')
+    SendJson(AResponseInfo, '{"count":' + FDatabase.CountReminders.ToString +
+      ',"dueCount":' + FDatabase.CountDueNotes.ToString + '}')
   else if SameText(ARequestInfo.Document, '/search') then
     HandleSearch(ARequestInfo, AResponseInfo)
   else if SameText(ARequestInfo.Document, '/favorites') then
@@ -1402,7 +1403,8 @@ begin
      (Length(PersonNormalizedNames) = 0) and
      not (SameText(ARequestInfo.Params.Values['favorite'], 'true') or
           (ARequestInfo.Params.Values['favorite'] = '1')) and
-     (ARequestInfo.Params.Values['due'] <> '1') then
+     (ARequestInfo.Params.Values['due'] <> '1') and
+     (ARequestInfo.Params.Values['reminders'] <> '1') then
   begin
     SendJson(AResponseInfo, '{"items":[],"count":0}');
     Exit;
@@ -1413,7 +1415,7 @@ begin
                   (ARequestInfo.Params.Values['favorite'] = '1');
   Items := FDatabase.SearchNotes(
     SearchText, MaxResults, FavoriteOnly, TagNormalizedNames, PersonNormalizedNames,
-    ARequestInfo.Params.Values['due'] = '1'
+    ARequestInfo.Params.Values['due'] = '1', ARequestInfo.Params.Values['reminders'] = '1'
   );
   Json := TStringBuilder.Create;
   try
@@ -1434,6 +1436,8 @@ begin
       Json.Append('"senderAddress":"' + JsonEscape(Note.SenderAddress) + '",');
       Json.Append('"mailDate":"' + JsonEscape(Note.MailDate) + '",');
       Json.Append('"modifiedAt":"' + JsonEscape(Note.ModifiedAt) + '",');
+      Json.Append('"reminderUtc":"' + JsonEscape(Note.ReminderUTC) + '",');
+      Json.Append('"completedUtc":"' + JsonEscape(Note.CompletedUTC) + '",');
       Json.Append('"snippet":"' + JsonEscape(Note.SearchSnippet) + '",');
 
       Json.Append('"tags":[');

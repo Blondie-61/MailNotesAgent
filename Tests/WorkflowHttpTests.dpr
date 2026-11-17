@@ -44,8 +44,22 @@ begin
         try Response := Client.Post('http://127.0.0.1:48571/note', Body); finally Body.Free; end;
         Response := Client.Get('http://127.0.0.1:48571/reminders/count');
         Obj := TJSONObject.ParseJSONValue(Response) as TJSONObject;
-        try Check(Obj.GetValue<Integer>('count') = 0, 'Completed excluded'); finally Obj.Free; end;
-        Body := TStringStream.Create('{"mailNotesId":"' + ID + '","content":"HTTP workflow","links":"[]","expectedRevision":2,"reminderUtc":"invalid","imageUploads":[]}', TEncoding.UTF8);
+        try
+          Check(Obj.GetValue<Integer>('count') = 1, 'Completed reminder remains counted');
+          Check(Obj.GetValue<Integer>('dueCount') = 1, 'Completed reminder remains due');
+        finally Obj.Free; end;
+        Body := TStringStream.Create('{"mailNotesId":"' + ID + '","content":"HTTP workflow","links":"[]","expectedRevision":2,"reminderUtc":"2099-01-01T10:00:00Z","imageUploads":[]}', TEncoding.UTF8);
+        try Response := Client.Post('http://127.0.0.1:48571/note', Body); finally Body.Free; end;
+        Response := Client.Get('http://127.0.0.1:48571/reminders/count');
+        Obj := TJSONObject.ParseJSONValue(Response) as TJSONObject;
+        try
+          Check(Obj.GetValue<Integer>('count') = 1, 'Future reminder remains counted');
+          Check(Obj.GetValue<Integer>('dueCount') = 0, 'Future reminder is not due');
+        finally Obj.Free; end;
+        Response := Client.Get('http://127.0.0.1:48571/search?q=&reminders=1');
+        Obj := TJSONObject.ParseJSONValue(Response) as TJSONObject;
+        try Check(Obj.GetValue<Integer>('count') = 1, 'Reminder filter includes future and completed'); finally Obj.Free; end;
+        Body := TStringStream.Create('{"mailNotesId":"' + ID + '","content":"HTTP workflow","links":"[]","expectedRevision":3,"reminderUtc":"invalid","imageUploads":[]}', TEncoding.UTF8);
         try
           try
             Client.Post('http://127.0.0.1:48571/note', Body);
@@ -55,8 +69,9 @@ begin
         Response := Client.Get('http://127.0.0.1:48571/note?mailNotesId=' + ID);
         Obj := TJSONObject.ParseJSONValue(Response) as TJSONObject;
         try
-          Check(Obj.GetValue<Integer>('revision') = 2, 'Invalid request changed revision');
-          Check(Obj.GetValue<string>('reminderUtc').StartsWith('2000-01-01T10:00:00'), 'Partial save lost reminder');
+          Check(Obj.GetValue<Integer>('revision') = 3, 'Invalid request changed revision');
+          Check(Obj.GetValue<string>('reminderUtc').StartsWith('2099-01-01T10:00:00'), 'Invalid request changed reminder');
+          Check(Obj.GetValue<string>('completedUtc') <> '', 'Reminder edit changed completion');
         finally Obj.Free; end;
         Writeln('PASS HTTP first save, roundtrip, due search, completion, preserved reminder, invalid date and atomic revision');
       finally Client.Free; Server.Free; end;
