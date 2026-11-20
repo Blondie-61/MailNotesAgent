@@ -67,6 +67,10 @@ type
     UsageCount: Integer;
   end;
 
+  TNoteFileLink = record
+    ID, Path, Platform: string;
+  end;
+
   TDatabase = class
   public
     constructor Create;
@@ -77,6 +81,11 @@ type
     function ChangeDatabasePath(const APath: string; out AMode: string): string;
     function CreateBackup(const ADestinationDirectory: string; const ARetentionCount: Integer = 3): string;
     function RestoreBackup(const ABackupFile: string): string;
+
+    function FileLinks(const MailID: string): TArray<TNoteFileLink>;
+    procedure AddFileLinks(const MailID: string; const NoteID: Integer;
+      const Paths: TArray<string>; const Platform: string);
+    procedure DeleteFileLink(const MailID, LinkID: string);
 
     procedure Save(Note: TNote); overload;
     procedure Save(Note: TNote; const ExpectedRevision: Int64;
@@ -766,6 +775,62 @@ begin
       raise;
     end;
   end;
+  if FConnection.ExecSQLScalar('SELECT SchemaVersion FROM SchemaInfo') = 8 then
+  begin
+    FConnection.StartTransaction;
+    try
+      FConnection.ExecSQL('CREATE TABLE NoteFileLink (' +
+        'LinkID TEXT NOT NULL PRIMARY KEY, NoteID INTEGER NOT NULL, Path TEXT NOT NULL, ' +
+        'Platform TEXT NOT NULL, CreatedUTC TEXT NOT NULL, UNIQUE (NoteID, Platform, Path), ' +
+        'FOREIGN KEY (NoteID) REFERENCES Note(ID) ON DELETE CASCADE)');
+      FConnection.ExecSQL('UPDATE SchemaInfo SET SchemaVersion = 9 WHERE SchemaVersion = 8');
+      FConnection.Commit;
+    except FConnection.Rollback; raise; end;
+  end;
+
+end;
+
+function TDatabase.FileLinks(const MailID: string): TArray<TNoteFileLink>;
+var Q: TFDQuery; L: TList<TNoteFileLink>; Link: TNoteFileLink;
+begin
+  L := TList<TNoteFileLink>.Create;
+  Q := TFDQuery.Create(nil);
+  try
+    Q.Connection := FConnection;
+    Q.SQL.Text := 'SELECT F.LinkID, F.Path, F.Platform FROM NoteFileLink F ' +
+      'JOIN Note N ON N.ID = F.NoteID WHERE N.MailNotesID = :ID AND N.IsDeleted = 0 ORDER BY F.rowid';
+    Q.ParamByName('ID').AsString := MailID; Q.Open;
+    while not Q.Eof do begin
+      Link.ID := Q.FieldByName('LinkID').AsString;
+      Link.Path := Q.FieldByName('Path').AsString;
+      Link.Platform := Q.FieldByName('Platform').AsString;
+      L.Add(Link); Q.Next;
+    end;
+    Result := L.ToArray;
+  finally Q.Free; L.Free; end;
+end;
+
+procedure TDatabase.AddFileLinks(const MailID: string; const NoteID: Integer;
+  const Paths: TArray<string>; const Platform: string);
+var P: string;
+begin
+  FConnection.StartTransaction;
+  try
+    if FConnection.ExecSQLScalar('SELECT COUNT(*) FROM Note WHERE ID = :N AND MailNotesID = :M AND IsDeleted = 0',
+      [NoteID, MailID]) <> 1 then raise Exception.Create('Die ursprüngliche Notiz ist nicht mehr verfügbar.');
+    for P in Paths do begin
+      if (P = '') or not TPath.IsPathRooted(P) then raise Exception.Create('Ungültiger Dateipfad.');
+      FConnection.ExecSQL('INSERT OR IGNORE INTO NoteFileLink (LinkID, NoteID, Path, Platform, CreatedUTC) ' +
+        'VALUES (:I, :N, :P, :S, :D)', [TGUID.NewGuid.ToString, NoteID, P, Platform, GetCurrentUTC]);
+    end;
+    FConnection.Commit;
+  except FConnection.Rollback; raise; end;
+end;
+
+procedure TDatabase.DeleteFileLink(const MailID, LinkID: string);
+begin
+  FConnection.ExecSQL('DELETE FROM NoteFileLink WHERE LinkID = :L AND NoteID IN ' +
+    '(SELECT ID FROM Note WHERE MailNotesID = :M AND IsDeleted = 0)', [LinkID, MailID]);
 end;
 
 function TDatabase.CountReminders: Integer;
@@ -1893,6 +1958,7 @@ begin
         Query.ParamByName('NoteID').AsInteger := NoteID;
         Query.ExecSQL;
         FConnection.ExecSQL('DELETE FROM NoteImages WHERE NoteID = :NoteID', [NoteID]);
+        FConnection.ExecSQL('DELETE FROM NoteFileLink WHERE NoteID = :NoteID', [NoteID]);
 
         DeleteUnusedTags;
         DeleteUnusedPersons;

@@ -2,8 +2,8 @@
   "version": 1,
   "files": [
     {
-      "path": "6e53fcf939e942050deb.css",
-      "sha256": "f66b22582dc824340e2fc67491eb83eaa08bcae3935c6268b4105675dcfc7fd1"
+      "path": "77e16ec9bbed1fddd1ac.css",
+      "sha256": "925dbf7690d4e3ef36bfe664c0ed68746a630f2b22ee29d7d3ae5340537460a8"
     },
     {
       "path": "assets/icon-128.png",
@@ -39,7 +39,7 @@
     },
     {
       "path": "manifest.xml",
-      "sha256": "d48b6d58b70f6d0c05f381b8af38472bfc7f76219cd448063e7d4b6ae7b7edd4"
+      "sha256": "64010d70739ecc53865beb181a330740f0da6696ae4059ca2d1237c08d969df9"
     },
     {
       "path": "polyfill.js",
@@ -47,12 +47,12 @@
     },
     {
       "path": "taskpane.html",
-      "sha256": "f253ef139e35ef7bfca20ee859d18741c7e525bacde854c5bfcac936f797d0b2"
+      "sha256": "7a097cb4bd8285a10a72eb45990f73836a1b079e3fe38f30302a062abc828420"
     },
     {
       "path": "taskpane.js",
-      "sha256": "44b862ebf358b0b2f0a7622edeb91a635027b0193d1c7b4c2d8b1aeb86758111"
+      "sha256": "d3c3918ef322b7a1e3119a908a18265ccade6748518f7d2e8e1c832dde7cf2f3"
     }
   ],
-  "buildId": "7e0386e8853ac720661f13f0605af9f5a01dc32862f96a15464699ef28d37da7"
+  "buildId": "93a069a94c0806c5cb42bf4bc7af48181bbe3c299d1afe32a75b8e3d240eeea0"
 }

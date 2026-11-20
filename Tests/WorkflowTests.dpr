@@ -1,4 +1,4 @@
-program WorkflowTests;
+﻿program WorkflowTests;
 {$APPTYPE CONSOLE}
 uses
   Winapi.Windows, System.SysUtils, System.IOUtils, uDatabase, uNote;
@@ -83,6 +83,21 @@ begin
       Check(DB.CountDueNotes = 1, 'Reopened note is due');
       DB.NotifyDueReminders(procedure(Count: Integer) begin Inc(Notifications, Count); end);
       Check(Notifications = 2, 'Completion toggle must not rearm notification');
+      N := DB.FindByMailNotesID(ID);
+      try
+        var RevisionBefore := N.Revision;
+        DB.AddFileLinks(ID, N.ID, [TPath.Combine(Folder, 'Prüfung #1.pdf'), TPath.Combine(Folder, 'Prüfung #1.pdf')], 'Windows');
+        Check(Length(DB.FileLinks(ID)) = 1, 'Duplicate file link suppressed');
+        Check(DB.FileLinks(ID)[0].Path.EndsWith('Prüfung #1.pdf'), 'Unicode path roundtrip');
+        Stale := DB.FindByMailNotesID(ID);
+        try Check(Stale.Revision = RevisionBefore, 'File links do not invalidate text autosave'); finally Stale.Free; end;
+        Conflict := False;
+        try DB.AddFileLinks(ID, N.ID + 1, [TPath.Combine(Folder, 'wrong.pdf')], 'Windows');
+        except on E: Exception do Conflict := True; end;
+        Check(Conflict and (Length(DB.FileLinks(ID)) = 1), 'Wrong originating note must not receive links');
+        DB.DeleteFileLink('another-mail', DB.FileLinks(ID)[0].ID);
+        Check(Length(DB.FileLinks(ID)) = 1, 'Delete is scoped to originating note');
+      finally N.Free; end;
       BackupFile := DB.CreateBackup(TPath.Combine(Folder, 'Backup'), 0);
       N := DB.FindByMailNotesID(ID);
       try
@@ -93,6 +108,7 @@ begin
       Check(DB.CountReminders = 1, 'Future reminder must remain counted');
       DB.RestoreBackup(BackupFile);
       Check(DB.CountDueNotes = 1, 'Restore keeps reminder');
+      Check(Length(DB.FileLinks(ID)) = 1, 'Restore keeps file links');
       DB.NotifyDueReminders(procedure(Count: Integer) begin Inc(Notifications, Count); end);
       Check(Notifications = 2, 'Restore keeps notification state');
       N := DB.FindByMailNotesID(ID);
@@ -101,7 +117,16 @@ begin
         DB.Save(N, N.Revision, nil);
       finally N.Free; end;
       Check(DB.CountDueNotes = 0, 'Removed reminder not due');
-      Writeln('PASS migration, save/load, due state, restart, completion toggle, conflict, notification deduplication and restore');
+      DB.DeleteFileLink(ID, DB.FileLinks(ID)[0].ID);
+      Check(Length(DB.FileLinks(ID)) = 0, 'Remove file link');
+      N := DB.FindByMailNotesID(ID);
+      try DB.AddFileLinks(ID, N.ID, [TPath.Combine(Folder, 'delete-note-test.txt')], 'Windows'); finally N.Free; end;
+      Check(DB.DeleteNote(ID, ''), 'Delete file-only note');
+      Check(Length(DB.FileLinks(ID)) = 0, 'Deleted note hides file links');
+      N := TNote.Create('<workflow-test@example.invalid>');
+      try N.MailNotesID := ID; N.Content := 'New note'; DB.Save(N, 0, nil); finally N.Free; end;
+      Check(Length(DB.FileLinks(ID)) = 0, 'New note must not revive deleted file links');
+      Writeln('PASS file links, migration, save/load, due state, restart, completion toggle, conflict, notification deduplication and restore');
     finally DB.Free; end;
   except
     on E: Exception do begin Writeln('FAIL ', E.ClassName, ': ', E.Message); Halt(1); end;

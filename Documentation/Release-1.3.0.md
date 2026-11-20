@@ -1,6 +1,6 @@
-# MailNotes 1.3.0 – Vorbereitung
+﻿# MailNotes 1.3.0 – Vorbereitung
 
-Stand: 17. November 2026. Noch nicht für die Veröffentlichung freigegeben.
+Stand: 20. November 2026. Noch nicht für die Veröffentlichung freigegeben.
 
 Versionen: Windows-Agent und Setup 1.3.0.0; macOS CFBundleVersion und CFBundleShortVersionString 1.3.0; Outlook-Manifest 1.3.0.0 (vierstellig), npm-Paket 1.3.0.
 
@@ -20,3 +20,9 @@ Neue Funktionen: Wiedervorlagen mit Datum/Uhrzeit, dezente Fälligkeitshinweise 
 ## Bekannter offener Punkt
 
 macOS zeigt unter Mitteilungen auf dem Entwicklungsrechner weiterhin ein Platzhalter-Icon, obwohl App-Ressource und Registrierung korrigiert sind. Sichtbare Aktualisierung steht noch aus.
+
+## Dateiverknüpfungen – neuer Prototyp
+
+Das Plus im Bereich Links öffnet ein natives Ablagefenster mit Mehrfachauswahl und Drag-and-drop. Gespeichert wird nur die Verknüpfung; die Dateien werden weder kopiert noch Teil des Datenbankbackups. Schema 9 trennt die Zuordnungen vom Text-/Bild-Autosave. Nicht erreichbare oder auf der anderen Plattform gespeicherte Pfade werden dezent markiert. Entfernen einer Zuordnung löscht keine Datei.
+
+Automatische Prüfungen und Windows-/Mac-Builds bestanden (Details in HANDOFF.md). Noch zu prüfen auf beiden Plattformen: echter Datei-Drop, Mehrfachauswahl, Mailwechsel bei offenem Fenster, Datei öffnen, Verknüpfung entfernen sowie Verschieben/Löschen einer Datei und erneuter Mailaufruf. Dafür neuen Agenten starten; Add-in allein genügt nicht.

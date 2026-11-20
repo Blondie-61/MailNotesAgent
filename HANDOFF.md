@@ -1,4 +1,4 @@
-# Übergabe – Bilder in Notizen
+﻿# Übergabe – Bilder in Notizen
 
 Stand 11. November 2026
 
@@ -393,3 +393,46 @@ Die reale Klickdiagnose zeigt am 18.11. um 11:48:56 nur pointerdown auf note-rem
 Neu: src/taskpane/focusClickRecovery.ts im Add-in. Nur ein primärer Mausdruck in der zunächst unfokussierten Taskpane wird beobachtet. Nach pointerup/mouseup bekommt der normale click Vorrang; nur wenn er fehlt, wird die Knopfaktion ergänzt. Ein verspäteter nativer Klick derselben Aktivierung wird unterdrückt, neue physische Klicks und Tastaturklicks bleiben eigenständig. Ziehen, pointercancel, deaktivierte/entfernte Knöpfe lösen keine Ersatzaktion aus. WVL-/Filterdiagnose erfasst jetzt auch pointerup/mouseup.
 
 Prüfung: npm run test:focus-click (isolierter Chrome, MAILNOTES_TEST_CHROME optional) bestanden, ebenso TypeScript und Production-Build. Der Test ist im Projekt unter scripts/test-focus-click-recovery.cjs gespeichert. Mac-Livepaket, VM-Ressourcen und signiertes Mac-App-Paket aktualisiert. Outlook vollständig neu starten, damit die neuen Handler installiert werden. Native Outlook-Praxisprüfung nach dem Neustart steht noch aus.
+
+
+### Dateiverknüpfungen über natives Ablagefenster (20.11.2026)
+
+Vor Beginn gesicherte Git-Stände: Add-in f86fdba, Agent 09dddd8. Neue Arbeit noch nicht gepusht.
+
+Das Plus unter Links bietet Link einfügen sowie Dateien verknüpfen. Ein natives Fenster des Agenten nimmt mehrere Dateien per Finder-/Explorer-Drop oder Dateiauswahl entgegen. uFileLinkWindow verwendet Win32 WM_DROPFILES/GetOpenFileName bzw. Cocoa NSView/NSOpenPanel mit modernen Datei-URLs und Legacy-Pasteboard-Unterstützung. Die unveränderliche Auswahlzuordnung enthält MailNotesID, Note.ID und die Datenbankgeneration. Ein Mailwechsel im Add-in lenkt die Auswahl nicht um. Es werden keine Dateien kopiert und keine Dateinamen/Pfade protokolliert.
+
+Schema 9 ergänzt NoteFileLink separat vom Text/Bild-Autosave (FK auf Note.ID, eindeutiger Pfad pro Plattform/Notiz). Öffnen und Entfernen sind an gespeicherte Link-ID + MailNotesID gebunden. Wiederherstellung, Datenbankwechsel oder Löschen einer Notiz invalidieren alte Auswahlen. Notizlöschen entfernt Zuordnungen, nie die Dateien. Pro Plattform fremde Pfade bleiben sichtbar, werden aber nicht geöffnet. Die Dateiprüfung läuft außerhalb der gemeinsamen Datenbanksperre; das Add-in begrenzt parallele Prüfungen auf vier und wartet höchstens acht Sekunden je Anfrage. Fehlende/nicht erreichbare Dateien werden markiert, nicht automatisch entfernt.
+
+Neue Schnittstellen: GET /filelinks, GET /filelinks/check, POST /filelinks/window, GET /filelinks/session, POST /filelinks/open, DELETE /filelinks. Eigene Herkunft bzw. erlaubte Entwicklungsherkunft und expliziter X-MailNotes-FileLinks: 1-Header. /version meldet capabilities.fileLinks=true. Add-in mit älterem Agenten zeigt einen Aktualisierungshinweis.
+
+Ausgeführt und bestanden: Windows- und OSXARM64-Release-Build; WorkflowTests mit Schema 6, 7, 8 (Migration, Unicode/Duplikate, falsche Notiz, kein Textrevisionskonflikt, Backup/Restore, Löschen/Neuanlage); WorkflowHttpTests auf isoliertem Port 48580 (Custom-Header/Herkunft, vorhandene/entfernte Datei, Beibehalten der Verknüpfung); native FileLinkWindowTests unter Windows und macOS (Fenstererzeugung, Mac-Hauptthreadanzeige, feste Auswahlzuordnung, Duplikate, Abschluss/Abbruch); TypeScript, Production-Build, npm run test:file-links (Mailwechsel, veraltete Antworten, sichere Dateinamen) und test:focus-click.
+
+Bereitgestellt: vollständiges Add-in im Mac-Liveordner und Resources/AddIn; neu gebautes Mac-Executable plus Add-in in signiertem Mac-App-Paket am üblichen PAServer-Pfad. Der laufende Agent wurde nicht beendet. Erst nach Agent-Neustart steht die Funktion zur Verfügung. Keine neuen Installer/DMGs und kein Release gebaut.
+
+Sicherheitskopie vor Schemaänderung: /Users/gerd/Documents/Codex/2026-11-20/MailNotes-before-file-links-074941.sqlite (Schema 8, integrity_check ok). Vorheriges Mac-App-Paket bleibt als MailNotesAgent.app.before-filelinks-c087fd7d erhalten. Paketprotokoll: /Users/gerd/Documents/Codex/2026-11-20/filelinks-package.json.
+
+Noch offen: echter Finder-/Explorer-Drop in Outlook, native Dateiauswahl mit mehreren Dateien, Doppelfenster/Mailwechsel während Auswahl und reales Öffnen in zugeordneter Anwendung; verschieben/löschen und erneut aufrufen; Windows-Praxistest mit neu gebauter EXE. Kein automatisches Nachverfolgen von Move/Delete/Rename. Die Zuordnungen gehen ins DB-Backup, die verknüpften Dateien selbst nicht.
+
+
+Nachtrag Abschlusscheck 20.11.: Beim abschließenden API-Aufruf lief keine Agent-Instanz mehr; kein neuer MailNotes-Absturzbericht vorhanden. Deshalb die bereitgestellte neue Fassung gestartet (PID 47217). /version bestätigt fileLinks=true, /reminders/count antwortet, Live-Datenbank nun Schema 9 und PRAGMA integrity_check=ok. Startprotokoll /Users/gerd/Documents/Codex/2026-11-20/filelinks-agent-start.log ohne Fehlermeldung. Der neue Mac-Agent läuft bereits; zum Praxistest nur Taskpane/Outlook neu laden.
+
+
+### Ablagefenster bleibt offen und zeigt erfasste Dateien (20.11.2026)
+
+Anwender bestätigt den echten Finder-Drop der ersten Fassung. Auf Wunsch bleibt das Fenster jetzt bis Fertig/Schließen geöffnet. Mehrere Drops bzw. Auswahlen aus verschiedenen Ordnern werden fortlaufend verknüpft. Bereits gespeicherte Dateien dieser Notiz erscheinen beim Öffnen; neue Einträge zeigen Wird verknüpft und nach API-Bestätigung Verknüpft. Dateiname und Ordner sind sichtbar, Duplikate werden erkannt (Windows ohne Beachtung der Groß-/Kleinschreibung). Eine Ablage während des vorigen Speicherns bleibt in der Warteschlange erhalten. Schließen verwirft keine ausstehenden Dateien.
+
+Optik: heller Hintergrund, große abgerundete gestrichelte Ablagefläche mit Kontur-Pfeil, klarer Titel und Mailbetreff, Dateiliste und zurückhaltender Fertig-Knopf. Cocoa mit hervorgehobener Ablagefläche beim Ziehen und scrollbarer Dateiliste; Windows mit nativer Dateitabelle. Keine Schemaänderung (bleibt 9).
+
+Session-Antwort enthält jetzt revision und message; sie bleibt nach einem bestätigten Paket waiting/ready, bis der Benutzer schließt. Finish quittiert nur das tatsächlich gespeicherte Paket; zusätzliche Dateien gehen dabei nicht verloren. Add-in aktualisiert Links bei jeder bestätigten Revision und hält die ursprüngliche Mailbindung. Erneutes Öffnen derselben aktiven Auswahl holt das Fenster nach vorne.
+
+Bestanden: Win64- und OSXARM64-Release-Build; native Fenstertests Windows/macOS mit bestehenden Dateien, mehreren Ordnern, Duplikaten, Ablage während Speicherung, offen bleibender Session, Revisionsständen, Schließen bei ausstehendem Paket und sichtbarem Speicherfehler; npm run test:file-links einschließlich mehrerer Speicherbestätigungen; TypeScript und Production-Build; bestehender Workflow-HTTP-Test auf isoliertem Port. Die automatische Bildschirmprüfung über Computer Use hing; keine abschließende visuelle Sichtprüfung behaupten. Echte Optik und wiederholte Finder-/Explorer-Drops bleiben zur Anwenderprüfung.
+
+Bereitgestellt: Add-in Mac live und VM Resources/AddIn, neue Windows-EXE im Buildordner, neues signiertes Mac-App-Paket am üblichen PAServer-Pfad. Build-ID 747daaabd1c6db9b095a0d8ff43e096428288bbfc7526ae6bdfdc5d8353854e3. Der vorhandene Mac-Agent wurde nicht beendet; Agent neu starten und Taskpane neu laden. Vorheriges App-Paket als MailNotesAgent.app.before-window-v2-747daaab gesichert. Paketprotokoll /Users/gerd/Documents/Codex/2026-11-20/window-v2-package.json.
+
+Windows-Freigabe war im Finder nicht gemountet. Zugriff über prlctl und die bestehende Windows-Sicht auf \\Mac\Home erfolgreich; der Anwender muss nichts mounten. Während des Abschlusses war die VM angehalten; fortgesetzt und finale Synchronisierung sowie HTTP-Test abgeschlossen.
+
+
+
+### Kettensymbol für Dateiverknüpfungen (20.11.)
+
+Schraffiertes Unicode-Kästchen auf Anwenderwunsch ersetzt: natives macOS-SF-Symbol link in secondaryLabelColor im Agent-Fenster; Kontur-SVG im Add-in auf beiden Plattformen. Mac-Release-Build, nativer Mac-Fenstertest einschließlich Symbolerzeugung, TypeScript, Browser-Dateilinktests und Production-Build bestanden. Mac-Live-Add-in, VM-Add-in und signiertes Mac-App-Paket aktualisiert. Für das native Symbol Agent neu starten; Add-in neu laden. Laufender Agent nicht beendet.

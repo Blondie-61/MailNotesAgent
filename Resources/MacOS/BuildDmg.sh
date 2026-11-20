@@ -94,7 +94,7 @@ Das Outlook-Add-in wird vom Agenten aus dem App-Bundle uebernommen.
 
 Die persoenliche Datenbank liegt ausserhalb des App-Bundles.
 Vor einem Update bitte eine Datenbanksicherung erstellen.
-Die Migration ergaenzt das Schema fuer Bilder auf Version 7.
+Die Migration ergaenzt das Schema fuer Bilder, Wiedervorlagen und Dateiverknuepfungen auf Version 9.
 
 Der Agent muss https://localhost:48571 erreichen koennen.
 Ist Port 48571 durch einen manuell gestarteten Prozess belegt,

@@ -7,3 +7,6 @@ if errorlevel 1 (type "%TEMP%\mailnotes-workflow-tests-build.log" & exit /b 1)
 "%TEMP%\MailNotesWorkflowTests\WorkflowTests.exe" "%~dp0Fixtures\Schema6.sqlite"
 if errorlevel 1 exit /b 1
 "%TEMP%\MailNotesWorkflowTests\WorkflowTests.exe" "%~dp0Fixtures\Schema7.sqlite"
+
+if errorlevel 1 exit /b 1
+"%TEMP%\MailNotesWorkflowTests\WorkflowTests.exe" "%~dp0Fixtures\Schema8.sqlite"

@@ -35,7 +35,7 @@ uses
   uRuntimeConfig,
   uGML,
   uGraphAccounts,
-  uDiagnostics;
+  uDiagnostics, uFileLinkWindow;
 
 type
   THttpServer = class
@@ -48,6 +48,8 @@ type
     FDatabaseLock: TObject;
     FGraphSignInRequested: TProc;
     FLogLock: TObject;
+    FFileWindow: TFileLinkWindow;
+    FFileLinkGeneration: Int64;
 
     // Kurzlebiger, einmaliger Navigationsauftrag fuer einen bewussten
     // Postfachwechsel im Outlook-Add-in. Nur im Speicher; niemals Teil
@@ -66,6 +68,7 @@ type
     function TryServeAddinFile(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo): Boolean;
     function ContentTypeForFile(const AFileName: string): string;
 
+    procedure HandleFileLinks(ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     procedure HandlePing(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleVersion(AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleStats(AResponseInfo: TIdHTTPResponseInfo);
@@ -124,6 +127,15 @@ type
 
 implementation
 
+uses
+{$IF Defined(MSWINDOWS)}
+  Winapi.Windows, Winapi.ShellAPI;
+{$ELSEIF Defined(MACOS)}
+  Macapi.AppKit, Macapi.Foundation, Macapi.Helpers;
+{$ELSE}
+  System.Types;
+{$ENDIF}
+
 
 procedure THttpServer.NotifyDueReminders(const Notify: TProc<Integer>);
 begin
@@ -141,6 +153,7 @@ begin
   FDatabase := ADatabase;
   FDatabaseLock := TObject.Create;
   FLogLock := TObject.Create;
+  FFileWindow := TFileLinkWindow.Create;
   FServer := TIdHTTPServer.Create(nil);
   FServer.OnException := HandleServerException;
   FServer.OnCommandGet := HandleCommandGet;
@@ -172,6 +185,7 @@ begin
 {$IF Defined(MSWINDOWS) or Defined(MACOS)}
     FSSLIOHandler.Free;
 {$ENDIF}
+    FFileWindow.Free;
     FLogLock.Free;
     FDatabaseLock.Free;
   end;
@@ -240,6 +254,7 @@ begin
   TMonitor.Enter(FDatabaseLock);
   try
     Result := FDatabase.ChangeDatabasePath(APath, AMode);
+    Inc(FFileLinkGeneration);
   finally
     TMonitor.Exit(FDatabaseLock);
   end;
@@ -270,6 +285,7 @@ begin
   TMonitor.Enter(FDatabaseLock);
   try
     Result := FDatabase.RestoreBackup(ABackupFile);
+    Inc(FFileLinkGeneration);
   finally
     TMonitor.Exit(FDatabaseLock);
   end;
@@ -316,6 +332,9 @@ begin
      TRuntimeConfig.ServeAddinFiles and
      TryServeAddinFile(ARequestInfo, AResponseInfo) then
     Exit;
+
+  if ARequestInfo.Document.StartsWith('/filelinks') then
+  begin HandleFileLinks(ARequestInfo, AResponseInfo); Exit; end;
 
   // Indy verarbeitet gleichzeitige HTTP-Anfragen in unterschiedlichen Threads.
   // Sämtliche Handler teilen sich jedoch eine FireDAC-Verbindung. FireDAC-
@@ -526,13 +545,125 @@ begin
   );
 end;
 
+procedure THttpServer.HandleFileLinks(ARequestInfo: TIdHTTPRequestInfo;
+  AResponseInfo: TIdHTTPResponseInfo);
+var
+  MailID, Token, State, LinkID, Subject, Json, Origin: string;
+  NoteID: Integer; Generation: Int64;
+  Paths: TArray<string>;
+  Note: TNote;
+  Links: TArray<TNoteFileLink>;
+  Link: TNoteFileLink;
+  Found, Available, AllowedOrigin: Boolean;
+  Scheme: string;
+begin
+  // Native UI and file opening require an explicit same-origin/custom-header request.
+  // A plain cross-site form must never be able to launch a window or a file.
+  Origin := ARequestInfo.RawHeaders.Values['Origin'];
+  if TRuntimeConfig.UseHttps then Scheme := 'https://' else Scheme := 'http://';
+  AllowedOrigin := (Origin = '') or TRuntimeConfig.IsAllowedCorsOrigin(Origin) or
+    SameText(Origin, Scheme + 'localhost:' + TRuntimeConfig.HttpPort.ToString) or
+    SameText(Origin, Scheme + '127.0.0.1:' + TRuntimeConfig.HttpPort.ToString);
+  if not AllowedOrigin or
+     (ARequestInfo.RawHeaders.Values['X-MailNotes-FileLinks'] <> '1') then
+  begin SendJson(AResponseInfo, '{"ok":false,"message":"Anfrage nicht erlaubt."}', 403); Exit; end;
+  try
+    MailID := Trim(ARequestInfo.Params.Values['mailNotesId']);
+    LinkID := Trim(ARequestInfo.Params.Values['linkId']);
+    if SameText(ARequestInfo.Document, '/filelinks/session') and SameText(ARequestInfo.Command, 'GET') then
+    begin
+      Token := ARequestInfo.Params.Values['token'];
+      State := FFileWindow.Snapshot(Token, MailID, NoteID, Generation, Paths);
+      if State = 'ready' then begin
+        TMonitor.Enter(FDatabaseLock);
+        try
+        try
+          if Generation <> FFileLinkGeneration then
+            raise Exception.Create('Die ursprüngliche Zuordnung ist nicht mehr gültig. Bitte Dateifenster erneut öffnen.');
+          FDatabase.AddFileLinks(MailID, NoteID, Paths, TAppInfo.PlatformName);
+          FFileWindow.Finish(Token, Paths);
+          State := FFileWindow.Snapshot(Token, MailID, NoteID, Generation, Paths);
+        except
+          on E: Exception do begin FFileWindow.Fail(Token, E.Message); raise; end;
+        end;
+        finally TMonitor.Exit(FDatabaseLock); end;
+      end;
+      SendJson(AResponseInfo, '{"ok":true,"state":"' + JsonEscape(State) +
+        '","revision":' + FFileWindow.Revision.ToString + ',"message":"' + JsonEscape(FFileWindow.Feedback) + '"}'); Exit;
+    end;
+    if MailID = '' then begin SendJson(AResponseInfo, '{"ok":false,"message":"Notiz fehlt."}', 400); Exit; end;
+    if SameText(ARequestInfo.Document, '/filelinks/window') and SameText(ARequestInfo.Command, 'POST') then
+    begin
+      TMonitor.Enter(FDatabaseLock);
+      try
+        Note := FDatabase.FindByMailNotesID(MailID);
+        try
+          if (Note = nil) or (Note.ID = 0) or Note.IsDeleted then
+            raise Exception.Create('Bitte zuerst die Notiz speichern.');
+          Subject := Copy(Note.Subject, 1, 200);
+          Links := FDatabase.FileLinks(MailID); SetLength(Paths, Length(Links));
+          for var I := 0 to High(Links) do Paths[I] := Links[I].Path;
+          Token := FFileWindow.BeginSelection(MailID, Subject, Note.ID, FFileLinkGeneration, Paths);
+        finally Note.Free; end;
+      finally TMonitor.Exit(FDatabaseLock); end;
+      SendJson(AResponseInfo, '{"ok":true,"token":"' + JsonEscape(Token) + '"}'); Exit;
+    end;
+    TMonitor.Enter(FDatabaseLock);
+    try
+      if SameText(ARequestInfo.Document, '/filelinks') and SameText(ARequestInfo.Command, 'DELETE') then
+      begin
+        FDatabase.DeleteFileLink(MailID, LinkID);
+        SendJson(AResponseInfo, '{"ok":true}'); Exit;
+      end;
+      Links := FDatabase.FileLinks(MailID);
+    finally TMonitor.Exit(FDatabaseLock); end;
+    // Filesystem work is deliberately outside the shared database lock. A slow
+    // network/removable drive must not hold up note saves or reminders.
+    if SameText(ARequestInfo.Document, '/filelinks') and SameText(ARequestInfo.Command, 'GET') then
+    begin
+      Json := '{"ok":true,"files":['; Found := False;
+      for Link in Links do begin
+        if Found then Json := Json + ','; Found := True;
+        Json := Json + '{"id":"' + JsonEscape(Link.ID) + '","name":"' +
+          JsonEscape(ExtractFileName(StringReplace(Link.Path, '\', '/', [rfReplaceAll]))) + '","path":"' + JsonEscape(Link.Path) + '","local":' +
+          LowerCase(BoolToStr(Link.Platform = TAppInfo.PlatformName, True)) + '}';
+      end;
+      SendJson(AResponseInfo, Json + ']}'); Exit;
+    end;
+    Found := False;
+    for Link in Links do if Link.ID = LinkID then begin Found := True; Break; end;
+    if not Found then begin SendJson(AResponseInfo, '{"ok":false,"message":"Dateiverknüpfung nicht gefunden."}', 404); Exit; end;
+    Available := (Link.Platform = TAppInfo.PlatformName) and TFile.Exists(Link.Path);
+    if SameText(ARequestInfo.Document, '/filelinks/check') and SameText(ARequestInfo.Command, 'GET') then
+    begin
+      SendJson(AResponseInfo, '{"ok":true,"available":' + LowerCase(BoolToStr(Available, True)) + '}'); Exit;
+    end;
+    if SameText(ARequestInfo.Document, '/filelinks/open') and SameText(ARequestInfo.Command, 'POST') then
+    begin
+      if not Available then raise Exception.Create('Datei ist auf diesem Gerät nicht erreichbar.');
+{$IF Defined(MSWINDOWS)}
+      if ShellExecute(0, 'open', PChar(Link.Path), nil, nil, SW_SHOWNORMAL) <= 32 then
+        raise Exception.Create('Datei konnte nicht geöffnet werden.');
+{$ELSEIF Defined(MACOS)}
+      if not TNSWorkspace.Wrap(TNSWorkspace.OCClass.sharedWorkspace).openURL(
+        TNSURL.Wrap(TNSURL.OCClass.fileURLWithPath(StrToNSStr(Link.Path)))) then
+        raise Exception.Create('Datei konnte nicht geöffnet werden.');
+{$ENDIF}
+      SendJson(AResponseInfo, '{"ok":true}'); Exit;
+    end;
+    SendJson(AResponseInfo, '{"ok":false,"message":"Unbekannte Dateilink-Anfrage."}', 404);
+  except
+    on E: Exception do SendJson(AResponseInfo, '{"ok":false,"message":"' + JsonEscape(E.Message) + '"}', 400);
+  end;
+end;
+
 procedure THttpServer.HandleVersion(AResponseInfo: TIdHTTPResponseInfo);
 begin
   SendJson(
     AResponseInfo,
     '{' +
     '"name":"MailNotesAgent",' +
-    '"capabilities":{"noteImages":true,"noteWorkflow":true},' +
+    '"capabilities":{"noteImages":true,"noteWorkflow":true,"fileLinks":true},' +
     '"debugEnabled":' + LowerCase(BoolToStr(TMNDiagnostics.DebugEnabled, True)) + ',' +
     '"version":"' + JsonEscape(TAppInfo.Version) + '",' +
     '"platform":"' + JsonEscape(TAppInfo.PlatformName) + '",' +
@@ -571,7 +702,7 @@ begin
   end;
 
   try
-    NewPath := FDatabase.ChangeDatabasePath(RequestedPath, Mode);
+    NewPath := ChangeDatabasePath(RequestedPath, Mode);
     SendJson(
       AResponseInfo,
       '{' +
@@ -814,6 +945,7 @@ begin
   end;
 
   Deleted := FDatabase.DeleteNote(MailNotesID, MessageID);
+  if Deleted then Inc(FFileLinkGeneration);
   if not Deleted then
   begin
     SendJson(AResponseInfo, '{"error":"note_not_found"}', 404);
@@ -2066,7 +2198,7 @@ begin
   AResponseInfo.CustomHeaders.Values['Access-Control-Allow-Origin'] := Origin;
   AResponseInfo.CustomHeaders.Values['Vary'] := 'Origin';
   AResponseInfo.CustomHeaders.Values['Access-Control-Allow-Methods'] := 'GET, POST, DELETE, OPTIONS';
-  AResponseInfo.CustomHeaders.Values['Access-Control-Allow-Headers'] := 'Content-Type';
+  AResponseInfo.CustomHeaders.Values['Access-Control-Allow-Headers'] := 'Content-Type, X-MailNotes-FileLinks';
   AResponseInfo.CustomHeaders.Values['Access-Control-Max-Age'] := '600';
 end;
 

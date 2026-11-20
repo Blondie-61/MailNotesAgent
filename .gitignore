@@ -67,3 +67,6 @@ Tests/MacHttpStressBuild/
 # Finder metadata for new compatibility and diagnostic sources
 Compatibility/IndySecOpenSSL/._*
 Tests/MacHttpStress/._*
+
+# Native file-link window test output
+Tests/FileLinkWindowBuild/
