@@ -5,11 +5,10 @@
         <FrameworkType>None</FrameworkType>
         <Base>True</Base>
         <Config Condition="'$(Config)'==''">Release</Config>
-        <Platform Condition="'$(Platform)'==''">Win64</Platform>
+        <Platform Condition="'$(Platform)'==''">OSXARM64</Platform>
         <TargetedPlatforms>131075</TargetedPlatforms>
         <AppType>Application</AppType>
         <MainSource>MailNotesAgent.dpr</MainSource>
-        <ProjectName Condition="'$(ProjectName)'==''">MailNotesAgent</ProjectName>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
         <Base>true</Base>
@@ -207,7 +206,7 @@
         <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Win64)'!=''">
-        <DCC_UnitSearchPath>..\ThirdParty\IndySecOpenSSL\src;..\ThirdParty\IndySecOpenSSL\src\opensslHdrs;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>..\Compatibility\IndySecOpenSSL;C:\Delphi-Projekte\Komponenten\IndySecOpenSSL\src;C:\Delphi-Projekte\Komponenten\IndySecOpenSSL\src\opensslHdrs;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <DCC_Define>USE_OPENSSL;$(DCC_Define)</DCC_Define>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <DCC_UsePackage>vclwinx;fmx;vclie;DbxCommonDriver;bindengine;IndyIPCommon;VCLRESTComponents;FireDACCommonODBC;FireDACCommonDriver;IndyProtocols;vclx;IndyIPClient;dbxcds;vcledge;bindcompvclwinx;FmxTeeUI;bindcompfmx;inetdb;FireDACSqliteDriver;DbxClientDriver;Tee;soapmidas;vclactnband;TeeUI;fmxFireDAC;dbexpress;DBXMySQLDriver;VclSmp;inet;fmxase;vcltouch;dbrtl;fmxdae;TeeDB;FireDACMSAccDriver;CustomIPTransport;vcldsnap;DBXInterBaseDriver;IndySystem;Skia.Package.VCL;vcldb;VirtualTreesR;vclFireDAC;bindcomp;FireDACCommon;inetstn;IndyCore;RESTBackendComponents;bindcompdbx;rtl;FireDACMySQLDriver;FireDACADSDriver;RESTComponents;DBXSqliteDriver;vcl;IndyIPServer;dsnapxml;dsnapcon;adortl;vclimg;FireDACPgDriver;FireDAC;inetdbxpress;xmlrtl;tethering;bindcompvcl;dsnap;CloudService;fmxobj;bindcompvclsmp;FMXTee;soaprtl;soapserver;FireDACIBDriver;$(DCC_UsePackage)</DCC_UsePackage>
@@ -258,7 +257,8 @@
         <DCC_DebugInformation>0</DCC_DebugInformation>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2_OSXARM64)'!=''">
-        <DCC_UnitSearchPath>C:\Delphi-Projekte\Komponenten\IndySecOpenSSL\src;C:\Delphi-Projekte\Komponenten\IndySecOpenSSL\src\opensslHdrs;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_MapFile>3</DCC_MapFile>
+        <DCC_UnitSearchPath>..\Compatibility\IndySecOpenSSL;C:\Delphi-Projekte\Komponenten\IndySecOpenSSL\src;C:\Delphi-Projekte\Komponenten\IndySecOpenSSL\src\opensslHdrs;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <Debugger_Launcher>/usr/X11/bin/xterm -e &quot;%debuggee%&quot;</Debugger_Launcher>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <PF_MacDevelopmentCert>Apple Development: Gerhard Waldhelm (VTRPUFAMFL)</PF_MacDevelopmentCert>
@@ -298,6 +298,7 @@
         <DCCReference Include="uRepairQueue.pas"/>
         <DCCReference Include="uHttpServer.pas"/>
         <DCCReference Include="uBackupScheduler.pas"/>
+        <DCCReference Include="uReminderScheduler.pas"/>
         <DCCReference Include="uSingleInstance.pas"/>
         <DCCReference Include="uTrayIconResources.pas"/>
         <DCCReference Include="uStatusLogo.pas"/>

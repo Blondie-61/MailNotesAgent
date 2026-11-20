@@ -33,6 +33,10 @@ mkdir -p "$PAYLOAD"
 /usr/bin/ditto --norsrc --noextattr "$SOURCE_APP" "$PAYLOAD/MailNotesAgent.app"
 node "$REPO_DIR/Setup/addin-package.cjs" deploy "$ADDIN_DIR" "$PAYLOAD/MailNotesAgent.app/Contents/Resources/Addin"
 cp "$REPO_DIR/Data/MailNotes.sqlite" "$PAYLOAD/MailNotesAgent.app/Contents/MacOS/Data/MailNotes.sqlite"
+# Auch mit einem älteren Delphi-Bundle immer das App-Symbol mitliefern.
+mkdir -p "$PAYLOAD/MailNotesAgent.app/Contents/Resources"
+cp "$SCRIPT_DIR/MN-OK.icns" "$PAYLOAD/MailNotesAgent.app/Contents/Resources/MailNotesAgent.icns"
+/usr/libexec/PlistBuddy -c "Set :CFBundleIconFile MailNotesAgent.icns" "$PAYLOAD/MailNotesAgent.app/Contents/Info.plist"
 # Das Entwicklungssiegel passt nach dem Paketexport nicht mehr.
 # Fuer dieses lokale Testpaket App und Bibliotheken ad hoc versiegeln.
 /usr/bin/codesign --force --deep --sign - "$PAYLOAD/MailNotesAgent.app"

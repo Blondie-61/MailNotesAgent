@@ -107,7 +107,8 @@ type
       const TagNormalizedNames: TArray<string>;
       const PersonNormalizedNames: TArray<string>;
       const DueOnly: Boolean = False;
-      const RemindersOnly: Boolean = False
+      const RemindersOnly: Boolean = False;
+      const ReminderState: string = ''
     ): TObjectList<TNote>;
     function GetFavorites(
       const MaxResults: Integer = 100
@@ -770,13 +771,13 @@ end;
 function TDatabase.CountReminders: Integer;
 begin
   Result := FConnection.ExecSQLScalar(
-    'SELECT COUNT(*) FROM Note WHERE IsDeleted = 0 AND ReminderUTC <> ''''');
+    'SELECT COUNT(*) FROM Note WHERE IsDeleted = 0 AND CompletedUTC = '''' AND ReminderUTC <> ''''');
 end;
 
 function TDatabase.CountDueNotes: Integer;
 begin
   Result := FConnection.ExecSQLScalar(
-    'SELECT COUNT(*) FROM Note WHERE IsDeleted = 0 ' +
+    'SELECT COUNT(*) FROM Note WHERE IsDeleted = 0 AND CompletedUTC = '''' ' +
     'AND ReminderUTC <> '''' AND ReminderUTC <= :NowUTC', [GetCurrentUTC]);
 end;
 
@@ -789,7 +790,7 @@ begin
   FConnection.StartTransaction;
   try
     Count := FConnection.ExecSQLScalar(
-      'SELECT COUNT(*) FROM Note WHERE IsDeleted = 0 ' +
+      'SELECT COUNT(*) FROM Note WHERE IsDeleted = 0 AND CompletedUTC = '''' ' +
       'AND ReminderUTC <> '''' AND ReminderUTC <= :NowUTC AND ReminderNotifiedUTC <> ReminderUTC',
       [NowUTC]);
     if Count > 0 then
@@ -797,7 +798,7 @@ begin
       Notify(Count);
       FConnection.ExecSQL(
         'UPDATE Note SET ReminderNotifiedUTC = ReminderUTC WHERE IsDeleted = 0 ' +
-        'AND ReminderUTC <> '''' AND ReminderUTC <= :NowUTC ' +
+        'AND CompletedUTC = '''' AND ReminderUTC <> '''' AND ReminderUTC <= :NowUTC ' +
         'AND ReminderNotifiedUTC <> ReminderUTC', [NowUTC]);
     end;
     FConnection.Commit;
@@ -1547,7 +1548,8 @@ function TDatabase.SearchNotes(
   const TagNormalizedNames: TArray<string>;
   const PersonNormalizedNames: TArray<string>;
   const DueOnly: Boolean;
-  const RemindersOnly: Boolean
+  const RemindersOnly: Boolean;
+  const ReminderState: string
 ): TObjectList<TNote>;
 var
   Query: TFDQuery;
@@ -1581,7 +1583,17 @@ begin
     FavoriteClause := 'AND N.IsFavorite = 1 ';
 
   if DueOnly or RemindersOnly then
+  begin
     FavoriteClause := FavoriteClause + 'AND N.ReminderUTC <> '''' ';
+    if ReminderState = 'completed' then
+      FavoriteClause := FavoriteClause + 'AND N.CompletedUTC <> '''' '
+    else
+      FavoriteClause := FavoriteClause + 'AND N.CompletedUTC = '''' ';
+  end;
+  if RemindersOnly and (ReminderState = 'future') then
+    FavoriteClause := FavoriteClause + 'AND N.ReminderUTC > :DueUTC ';
+  if RemindersOnly and (ReminderState = 'due') then
+    FavoriteClause := FavoriteClause + 'AND N.ReminderUTC <= :DueUTC ';
   if DueOnly then
     FavoriteClause := FavoriteClause + 'AND N.ReminderUTC <= :DueUTC ';
   TagClause := '';
@@ -1652,7 +1664,7 @@ begin
         'LIMIT :ResultLimit';
     end;
 
-    if DueOnly then
+    if DueOnly or (RemindersOnly and ((ReminderState = 'future') or (ReminderState = 'due'))) then
       Query.ParamByName('DueUTC').AsString := GetCurrentUTC;
     for TagIndex := 0 to High(TagNormalizedNames) do
     begin

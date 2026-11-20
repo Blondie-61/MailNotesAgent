@@ -61,3 +61,9 @@ Setup/OpenSSL/
 
 # Third-party dependencies
 ThirdParty/
+# Generated isolated Mac stress-test output
+Tests/MacHttpStressBuild/
+
+# Finder metadata for new compatibility and diagnostic sources
+Compatibility/IndySecOpenSSL/._*
+Tests/MacHttpStress/._*

@@ -59,12 +59,20 @@ begin
       try
         N.CompletedUTC := '2026-11-16T10:00:00Z';
         DB.Save(N, N.Revision, nil);
-        Check(DB.CountDueNotes = 1, 'Completion must not affect WVL');
-        Check(DB.CountReminders = 1, 'Completion must not affect WVL count');
+        Check(DB.CountDueNotes = 0, 'Completed WVL is inactive');
+        Check(DB.CountReminders = 0, 'Completed WVL excluded from active count');
+        DB.NotifyDueReminders(procedure(Count: Integer) begin Inc(Notifications, Count); end);
+        Check(Notifications = 1, 'Completed WVL must not notify');
+        N.CompletedUTC := '';
+        DB.Save(N, N.Revision, nil);
+        DB.NotifyDueReminders(procedure(Count: Integer) begin Inc(Notifications, Count); end);
+        Check(Notifications = 1, 'Reopening same notified WVL must not duplicate');
+        N.CompletedUTC := '2026-11-17T07:00:00Z';
+        DB.Save(N, N.Revision, nil);
         N.ReminderUTC := '1999-01-01T10:00:00Z';
         DB.Save(N, N.Revision, nil);
         DB.NotifyDueReminders(procedure(Count: Integer) begin Inc(Notifications, Count); end);
-        Check(Notifications = 2, 'Completed status must not suppress a new reminder');
+        Check(Notifications = 1, 'New reminder stays inactive while completed');
         Conflict := False;
         try DB.Save(Stale, Stale.Revision, nil);
         except on E: ENoteImageConflict do Conflict := True; end;

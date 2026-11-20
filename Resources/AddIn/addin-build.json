@@ -2,6 +2,10 @@
   "version": 1,
   "files": [
     {
+      "path": "6e53fcf939e942050deb.css",
+      "sha256": "f66b22582dc824340e2fc67491eb83eaa08bcae3935c6268b4105675dcfc7fd1"
+    },
+    {
       "path": "assets/icon-128.png",
       "sha256": "4af9ae942fd0df90691e3c7475bf0417be98e49571ac54d8f6170fa3fd3773f6"
     },
@@ -26,10 +30,6 @@
       "sha256": "f9858ffa0af9082454c10cfe675e42fb04751656c8f9318c81e57add529597a2"
     },
     {
-      "path": "b95ab726ddd24cdf4b35.css",
-      "sha256": "52b3603c42ab34eb064525fab8fceb3ee4dc466770fe4af7aa1363ee6902e84f"
-    },
-    {
       "path": "commands.html",
       "sha256": "fe26a59ffb1d4e73a4e4896aefed714b8dd50015532e44938738136a33b3661f"
     },
@@ -39,7 +39,7 @@
     },
     {
       "path": "manifest.xml",
-      "sha256": "ceccc0fe4c87999e225574251db3d1e8c2e2c0e2348f68b3e10701d2bdc817de"
+      "sha256": "d48b6d58b70f6d0c05f381b8af38472bfc7f76219cd448063e7d4b6ae7b7edd4"
     },
     {
       "path": "polyfill.js",
@@ -47,12 +47,12 @@
     },
     {
       "path": "taskpane.html",
-      "sha256": "39b032c669ff58cf2b65b8e0cd014ecea0f7c76aa5bab9af24450d475cc5c5fe"
+      "sha256": "f253ef139e35ef7bfca20ee859d18741c7e525bacde854c5bfcac936f797d0b2"
     },
     {
       "path": "taskpane.js",
-      "sha256": "f42fbe0c241d746b202084d95b979f7eb29b49d5292a669616ea948653967ddd"
+      "sha256": "44b862ebf358b0b2f0a7622edeb91a635027b0193d1c7b4c2d8b1aeb86758111"
     }
   ],
-  "buildId": "59243e470bd9ed2266e01c5eae7147670eb838663933e16b0606a99b5f5a3272"
+  "buildId": "7e0386e8853ac720661f13f0605af9f5a01dc32862f96a15464699ef28d37da7"
 }

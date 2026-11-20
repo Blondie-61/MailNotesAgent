@@ -330,3 +330,66 @@ Die Agent-Schnittstelle liefert Gesamtzahl und Fälligkeiten getrennt. Der WVL-F
 Bestanden am 17. November: echte Datenbanktests für Migration von Schema 6 und 7, Save/Load, unabhängigen Erledigt-Status, neue Benachrichtigung trotz erledigter Notiz, keine erneute Meldung allein durch Erledigt-Umschalten, Backup/Restore und Konfliktschutz. HTTP-Tests bestätigen count=1 und dueCount=0 bei zukünftiger WVL sowie das Auffinden derselben auch bei gesetztem CompletedUTC. Der isolierte Zählertest bestätigt 1 neutral → 1 akzentuiert → 1 neutral → 0 und ignoriert veraltete Antworten.
 
 Win64/Release und OSXARM64/Release sind erfolgreich kompiliert. Das vollständige Add-in-Paket wurde in Resources/AddIn übernommen und byteweise über seine Build-ID mit dem Mac-Paket abgeglichen. Source-Commit des Add-ins ist 6136cb4. Live-Agent und Outlook wurden für diesen Abschluss nicht neu gestartet. Für den Praxistest den neuen Agenten über Delphi bereitstellen und starten und danach das Taskpane neu laden. Die neue Zählweise benötigt diese Agent-Aktualisierung; ein reines Add-in-Update reicht hier nicht.
+
+
+## 17. November 2026 – WVL-Auswahlmenü und erledigte Notizen
+
+Diese Regeln ersetzen die frühere vollständige Unabhängigkeit von WVL und Erledigt:
+- Eine erledigte Notiz behält ihren WVL-Termin, dieser ist aber grau/inaktiv. Sie zählt nicht zu offenen WVL und löst keine Systemmeldung aus. Wiederöffnen aktiviert den erhaltenen Termin wieder; die bereits bestätigte Meldung desselben Termins wird nicht wiederholt.
+- Der einzelne WVL-Filterknopf öffnet eine Auswahl: Ohne WVL-Filter, Alle offenen WVL, Zukünftig, Fällig, Erledigt mit WVL. Der Zähler bleibt die Gesamtzahl offener WVL. Die aktuelle Auswahl steht klein unter den Filterknöpfen.
+- Farben: zukünftige WVL grün, fällige rot, erledigte grau. Filterauswahl nutzt eine neutrale hinterlegte Fläche statt eines blauen Rahmens.
+- GET /search?reminders=1&reminderState=active|future|due|completed kombiniert den Zustand weiterhin mit Text, Favoriten, Tags und Personen per AND. Ohne reminderState bleibt reminders=1 die offene Gesamtmenge.
+- Eine leere Schnittmenge zeigt ausdrücklich „Keine Treffer für diese Auswahl.“. Der zunächst gemeldete AND-Fehler wurde vom Anwender zurückgenommen.
+
+Ausgeführt: Datenbanktests einschließlich Restore aus Schema 6 und 7; HTTP-Tests der Zustände und ihrer Kombination mit Favoriten/Tags/Personen; TypeScript-Prüfung; isolierter Browser-Test von Menüauswahl, WVL-Aktionen und Erledigen/Wiederöffnen; Release-Kompilierung für Win64 und OSXARM64.
+Offen: Prüfung der neuen Menübedienung und nativer Systemmeldungen in Outlook unter macOS und Windows mit neu gestartetem Agenten.
+
+
+## 17. November 2026 – Version 1.3.0 vorbereitet
+
+Versionsquellen für Agent, Setup, Delphi-Konfigurationen und Outlook-Manifest auf 1.3.0.0 angehoben. Beide macOS-Bundle-Versionsfelder lauten 1.3.0; npm-Paket 1.3.0. Historische Release-Notizen und vorhandene Release-Artefakte behalten ihre ursprünglichen Versionen. Die ausführlichen Windows-Praxistests stehen noch aus; Checkliste: Documentation/Release-1.3.0.md. Kein Release veröffentlicht.
+
+
+## 18. November 2026 – TLS-Lebensdauer korrigiert; Mac-Backup vorübergehend lokal
+
+Der Mac-Absturz vom 18.11. um 07:20 wurde untersucht. Ein isolierter Lasttest reproduzierte eine Zugriffsverletzung in TComponent.RemoveFreeNotifications beim Stoppen des HTTP-Servers. Die TLS-Komponente teilte einen fIOHandler zwischen Listenern und registrierte Verbindungshandler am gemeinsamen Server für unsynchronisierte FreeNotifications.
+
+Die Korrektur liegt in Compatibility/IndySecOpenSSL/IdSecOpenSSL.pas. Diese Unit hat in den Projektpfaden Vorrang; die übrige Bibliothek und Header kommen weiterhin aus C:\Delphi-Projekte\Komponenten\IndySecOpenSSL\src. Die globale Installation und die ignorierte ältere ThirdParty-Kopie wurden nicht verändert. Mac-Release-Builds erzeugen nun eine separate Adresskarte. Fehler vor der eigentlichen HTTP-Verarbeitung werden zusätzlich protokolliert, normale Graceful-Disconnects ausgenommen.
+
+Ausgeführt: Release-Builds Win64 und OSXARM64; Datenbank-/Restoretests aus Schema 6 und 7; HTTP-Workflowtests einschließlich WVL-Menüzuständen und AND-Filtern. Der HTTP-Test verwendet nun Port 48580 nur mit MAILNOTES_HTTP_TEST, prüft seinen eigenen Datenpfad und eine sprachunabhängige Portbelegung. Zuvor übersah die Suche nach LISTENING den deutschen Status ABHÖREN und kollidierte mit dem automatisch gestarteten Windows-Agenten. Produktionsport bleibt 48571.
+
+Nach TLS-Korrektur: 22.985 + 22.125 + 44.270 = 89.380 isolierte Mac-HTTPS-Anfragen, keine Clientfehler, jeweils sauberer Shutdown; erster Lauf gemischt IPv4/IPv6. Diese Tests belegen den reproduzierten Fehler, ersetzen aber keinen nächtlichen Dauerlauf für den ursprünglichen Absturz.
+
+Der korrigierte Mac-Agent 1.3.0.0 ist bereitgestellt und gestartet. Mac-Bundle 1.3.0, UUID 72F11C10-C6DD-3049-88C3-E5A98AAB8E43. HTTPS mit TLS 1.2 und 1.3 und WVL-Abfrage wurden direkt an diesem Agenten geprüft. Die vorige App liegt als MailNotesAgent.app.before-tls-fix-20261118 neben der PAServer-App. Autostart bleibt aus; kein neuer Installer/Release veröffentlicht.
+
+Zusatzbefund: Der erste Start blockierte beim direkten SQLite-Backup ins pCloud-Ziel, während FDatabaseLock gehalten wurde. Nach ausdrücklicher Zustimmung des Anwenders wurde nur Backup.Directory in der Mac-INI vorübergehend nach /Users/gerd/Library/Application Support/MailNotes/Backups umgestellt. Erstes automatisches Backup erstellt und geprüft: integrity_check=ok, 117 Notizen. HTTP/WVL antworten danach weiter. Die vorherige INI ist gesichert; bestehende pCloud-Backups bleiben erhalten. Neue Sicherungen liegen bis zur Klärung nur lokal.
+
+Offen: Dauerlauf über Nacht; ausführliche Windows-Praxistests; pCloud-Verfügbarkeit/Rückumstellung. Ein späterer Backup-Umbau sollte zunächst lokal sichern und erst außerhalb der DB-Sperre ins externe Ziel veröffentlichen. Vollständige Diagnoseartefakte: /Users/gerd/Documents/Codex/2026-11-18/MailNotes-Absturz/Befund.md.
+
+Eine durch den unterbrochenen SMB-Schreibzugriff leere Projektdatei wurde vor dem Patch aus der unmittelbar zuvor erstellten Sicherung wiederhergestellt und als XML geprüft. Für weitere IDE-Builds das extern geänderte Projekt neu laden, damit die Compatibility-Unit sicher verwendet wird.
+
+
+### WVL-Filteranzeige kompakter (18.11.)
+
+Der Filterknopf folgt der gewählten Ansicht: Zukünftig grüner Pfeil, Fällig roter Pfeil, Erledigt grauer Haken, sonst grauer Pfeil. Der globale Zähler bleibt unverändert; ohne Auswahl kann seine Zahl weiterhin fällige WVL rot signalisieren. Bei aktivem WVL-Filter entfällt die zusätzliche Fälligkeitszeile; ohne WVL-Filter ist sie auf „↺ N fällig“ verkürzt. Leere Auswahl: „Keine Treffer.“. TypeScript, Production-Build und isolierte DOM/CSS-Prüfung bestanden. Pakete auf Mac, VM und im Mac-App-Bundle identisch aktualisiert.
+
+
+### Erster Klick auf WVL während des Ladens (18.11.)
+
+Das Add-in merkt den Dialogwunsch beim Laden für die konkrete Mail vor und öffnet ihn nach der vollständigen Datenübernahme. Der WVL-Aktionsknopf kann während eines laufenden gültigen Ladevorgangs geklickt werden; doppelte Klicks öffnen nur einen Dialog. Andere Mail bzw. Ladefehler öffnen keinen veralteten Dialog. Wiederholtes Laden derselben Mail erhält den vorgemerkten Wunsch. Die Diagnose protokolliert „reminder dialog requested“ mit dem Ladezustand, ohne Mailinhalt/ID. Ein isolierter Browser-Test mit den echten Lade- und Dialogfunktionen sowie verzögertem Abruf bestand. Outlook-Praxistest des vom Anwender beschriebenen ersten Klicks noch offen.
+
+
+### Enter im WVL-Dialog / Klickdiagnose (18.11.)
+
+Speichern ist nun der Submit-Button eines Formulars. Enter im Datum-/Zeitfeld übernimmt den Termin; native Segmente werden vor Submit per Blur bestätigt. Validierung, Schutz vor doppeltem Speichern und Warten auf Speicherbestätigung bleiben erhalten. Abbrechen/Entfernen sind weiterhin type=button. Browser-Prüfungen zu gültigem/ungültigem Datum, Mehrfach-Enter, IME, Abbrechen sowie verzögertem Laden bestanden.
+
+Der erste Klick in Outlook wurde vom Anwender weiterhin als fehlerhaft gemeldet und ist offen. Die bisherige Zusatzdiagnose war durch ENABLE_LOGGING=false ebenfalls abgeschaltet. Inhaltsfreie Workflow-Diagnosen dürfen nun gezielt bei aktivem INI-Debug-Schalter protokolliert werden, ohne das allgemeine Produktionslogging einzuschalten. Pointerdown/Click auf WVL-Aktion/-Eintrag sowie Dialoganforderung und erfolgreiches Öffnen werden erfasst. Der Schaltertest (Debug ein/aus bei Produktionslogging aus) bestand. Der nächste Outlook-Praxistest muss die tatsächlichen Ereignisse liefern.
+
+
+### Verlorener erster Aktivierungsklick (18.11.)
+
+Die reale Klickdiagnose zeigt am 18.11. um 11:48:56 nur pointerdown auf note-reminder-entry, loading=false, disabled=false, focused=false. Erst der zweite Versuch um 11:49:00 liefert pointerdown und click bei focused=true; der Dialog öffnet danach. Der Anwender berichtet denselben Effekt am WVL-Filter direkt nach dem Anpinnen. Die vorherige Lade-Vormerkung adressierte diesen Fokusfall nicht.
+
+Neu: src/taskpane/focusClickRecovery.ts im Add-in. Nur ein primärer Mausdruck in der zunächst unfokussierten Taskpane wird beobachtet. Nach pointerup/mouseup bekommt der normale click Vorrang; nur wenn er fehlt, wird die Knopfaktion ergänzt. Ein verspäteter nativer Klick derselben Aktivierung wird unterdrückt, neue physische Klicks und Tastaturklicks bleiben eigenständig. Ziehen, pointercancel, deaktivierte/entfernte Knöpfe lösen keine Ersatzaktion aus. WVL-/Filterdiagnose erfasst jetzt auch pointerup/mouseup.
+
+Prüfung: npm run test:focus-click (isolierter Chrome, MAILNOTES_TEST_CHROME optional) bestanden, ebenso TypeScript und Production-Build. Der Test ist im Projekt unter scripts/test-focus-click-recovery.cjs gespeichert. Mac-Livepaket, VM-Ressourcen und signiertes Mac-App-Paket aktualisiert. Outlook vollständig neu starten, damit die neuen Handler installiert werden. Native Outlook-Praxisprüfung nach dem Neustart steht noch aus.

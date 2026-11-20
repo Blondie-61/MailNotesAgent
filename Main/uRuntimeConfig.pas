@@ -20,7 +20,12 @@ uses
 
 class function TRuntimeConfig.HttpPort: Integer;
 begin
+{$IFDEF MAILNOTES_HTTP_TEST}
+  // Only the isolated HTTP regression executable defines this symbol.
+  Result := 48580;
+{$ELSE}
   Result := 48571;
+{$ENDIF}
 end;
 
 class function TRuntimeConfig.HttpBindAddress: string;

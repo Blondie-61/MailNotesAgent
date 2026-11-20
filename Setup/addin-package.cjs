@@ -84,7 +84,7 @@ function deploy(source, destination) {
       // Der macOS-Agent behält das vorige Paket regulär als Rollback.
       // Erst ein vollständig gültiges Live-Paket erlaubt dessen Ablösung.
       validate(destination);
-      fs.rmSync(rollback, { recursive: true });
+      fs.rmSync(rollback, { recursive: true, force: true });
     }
     if (fs.existsSync(destination)) {
       fs.renameSync(destination, rollback);
@@ -99,7 +99,7 @@ function deploy(source, destination) {
   } finally {
     if (fs.existsSync(staging)) fs.rmSync(staging, { recursive: true });
   }
-  if (moved) fs.rmSync(rollback, { recursive: true });
+  if (moved) fs.rmSync(rollback, { recursive: true, force: true });
 }
 module.exports = { seal, validate, deploy };
 if (require.main === module) {

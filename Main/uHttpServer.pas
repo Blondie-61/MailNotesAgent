@@ -57,6 +57,7 @@ type
     FPendingOpenSubject: string;
     FPendingOpenExpiresAt: TDateTime;
 
+    procedure HandleServerException(AContext: TIdContext; AException: Exception);
     procedure HandleCommandGet(AContext: TIdContext; ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 {$IF Defined(MSWINDOWS) or Defined(MACOS)}
     procedure HandleQuerySSLPort(APort: Word; var VUseSSL: Boolean);
@@ -141,6 +142,7 @@ begin
   FDatabaseLock := TObject.Create;
   FLogLock := TObject.Create;
   FServer := TIdHTTPServer.Create(nil);
+  FServer.OnException := HandleServerException;
   FServer.OnCommandGet := HandleCommandGet;
   FServer.OnCommandOther := HandleCommandGet;
 {$IF Defined(MSWINDOWS) or Defined(MACOS)}
@@ -279,6 +281,14 @@ begin
   VUseSSL := TRuntimeConfig.UseHttps and (APort = TRuntimeConfig.HttpPort);
 end;
 {$ENDIF}
+
+procedure THttpServer.HandleServerException(AContext: TIdContext; AException: Exception);
+begin
+  // A normal peer disconnect is not an error.
+  if AException.ClassName = 'EIdConnClosedGracefully' then Exit;
+  // Includes protocol/TLS failures before an HTTP request reaches its handler.
+  TMNDiagnostics.Error('HTTP-worker', AException.ClassName + ': ' + AException.Message);
+end;
 
 procedure THttpServer.HandleCommandGet(AContext: TIdContext; ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 var
@@ -1415,7 +1425,8 @@ begin
                   (ARequestInfo.Params.Values['favorite'] = '1');
   Items := FDatabase.SearchNotes(
     SearchText, MaxResults, FavoriteOnly, TagNormalizedNames, PersonNormalizedNames,
-    ARequestInfo.Params.Values['due'] = '1', ARequestInfo.Params.Values['reminders'] = '1'
+    ARequestInfo.Params.Values['due'] = '1', ARequestInfo.Params.Values['reminders'] = '1',
+    ARequestInfo.Params.Values['reminderState']
   );
   Json := TStringBuilder.Create;
   try
