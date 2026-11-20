@@ -436,3 +436,12 @@ Windows-Freigabe war im Finder nicht gemountet. Zugriff über prlctl und die bes
 ### Kettensymbol für Dateiverknüpfungen (20.11.)
 
 Schraffiertes Unicode-Kästchen auf Anwenderwunsch ersetzt: natives macOS-SF-Symbol link in secondaryLabelColor im Agent-Fenster; Kontur-SVG im Add-in auf beiden Plattformen. Mac-Release-Build, nativer Mac-Fenstertest einschließlich Symbolerzeugung, TypeScript, Browser-Dateilinktests und Production-Build bestanden. Mac-Live-Add-in, VM-Add-in und signiertes Mac-App-Paket aktualisiert. Für das native Symbol Agent neu starten; Add-in neu laden. Laufender Agent nicht beendet.
+
+
+### Privater Test-Release 1.3.1.0 (20.11.2026)
+
+Windows-Agent/Setup/API/Outlook-Manifest 1.3.1.0, npm 1.3.1, macOS CFBundleVersion und CFBundleShortVersionString 1.3.1. Alle Delphi-VerInfo-Konfigurationen angeglichen; es waren noch ältere Einzelwerte vorhanden. Bei bereits geöffnetem Delphi-Projekt vor weiterem Bauen die extern geänderte Projektdatei neu laden.
+
+Beide Repositorys gepusht. Add-in-Commit ef32a76affc476b4365f9309eb9fe240a4ae4b07, Agent-Quellstand für den Release 3a3089d7da86e3c24347d7895c93e1f0c1213415. GitHub-Draft (draft=true, prerelease=true, nicht veröffentlicht): https://github.com/Blondie-61/MailNotesAgent/releases/tag/untagged-06c74edfaa68bfd62626
+
+Angehängt: MailNotesAgent-Setup-1.3.1.0.exe, MailNotesAgent-1.3.1-macOS-arm64.dmg, MailNotes-AddIn-1.3.1.0.zip, Release-Notes-1.3.1.md und SHA256SUMS.txt. Lokale Kopien: /Users/gerd/Documents/Codex/Releases/1.3.1. Versionsprüfung der Windows-EXE, beide Agent-Builds, Add-in-TypeScript/Browserprüfungen/Produktionsbuild, Datenbanktests Schema 6/7/8 und DMG-Inhaltsprüfung (Version, Signatur, Add-in, sämtliche inneren Prüfsummen) erfolgreich. Windows-Setup mit vollständigem Add-in-Paket gebaut. Installation/Update auf den Testsystemen bleibt zur Praxisprüfung offen. Mac-App am Entwicklungs-PAServer-Pfad aktualisiert; laufende Instanz wurde nicht beendet. Kein Release veröffentlicht und kein Autostart aktiviert.
